@@ -1,257 +1,131 @@
 # Immutable glyph fragment result
 
-**Status:** Working direction, 28 November 2026. The public traversal boundary
-returns a complete immutable result per selected typography paragraph fragment.
-The contents and ownership below are proposed contracts. A
-[minimal Go API proposal](immutable_fragment_result_api_proposal.md) now sketches
-construction and read-only inspection; no API is implemented or finalized, and
-display-list design remains undecided.
+**Status:** Working direction for the two-page PDF spike, 28 November 2026.
+[REMARKS.md](REMARKS.md) sets the priorities: module responsibilities, useful
+positioned-glyph output and simple print paint. Semantic text is deferred.
+The [Go API proposal](immutable_fragment_result_api_proposal.md) is illustrative;
+there is no implementation or display-list decision.
 
-The result supplies reusable local glyph placement, font references, source
-correspondence and atomic anchors. SVG and PDF consumers can inspect it without
-repeating visual ordering, pen accumulation, shaping or line layout. Publication
-succeeds for the whole selected fragment or returns an error with no result.
+## Purpose and scope
 
-This develops the [traversal boundary sketch](glyph_traversal_boundary_sketch.md).
-Here, **fragment means `typography/layout.Fragment`**: one selected line range
-from one frozen paragraph owner. A pagelayout `content.FitFragment` can contain
-several paragraph occurrences, including atomic interiors; it therefore requires
-several such results plus the page integration's associations.
+Return one complete immutable result per selected `typography/layout.Fragment`.
+It contains enough drawing information to reuse the same local placement in SVG
+and PDF without repeating ordering or pen accumulation. A structural pagelayout
+fragment may contain several paragraph occurrences and atomic interiors, each
+with its own result and external occurrence association.
 
-## Proposed contents
+The result is deliberately detached from semantic text. Full paragraph text,
+replacement spellings, raw source anchors, cluster ranges and logical glyph
+ordinals are construction inputs or scratch, not retained output. Existing
+source data used by preparation, pagination and paint resolution is not removed
+from those stages.
 
-These are semantic parts, not a prescribed arrangement of structs and slices.
-References between parts are local to the result and must not be reused in a
-different result.
+## Retained contents
 
-| Part | Contents and meaning |
+| Part | Purpose |
 | --- | --- |
-| Fragment summary | Original frozen line range, local logical box and baseline presence, and provenance scope for original indexes. Coordinates remain fractional big points with Y downward. Logical bounds are not ink bounds. |
-| Source context | Immutable processed paragraph text and a description of its coordinate domain; selected generated replacement strings have separate domains. Page occurrence and decoded HTML source identity remain external associations. |
-| Font references | References to the retained sized font instances used by selected text, with the numeric font-unit-to-big-point conversion used to place glyphs. Glyphs refer to these entries. |
-| Lines | Local and original line indexes, top/height/baseline, occupied and target widths, side skips, and references to the selected material in physical knot order. No restacking instructions. |
-| Material records | Original knot index, final advance, material kind, original paragraph source range and an association to text, space, fill, silent replacement or atomic material as applicable. Text materials retain their shaping direction, including replacements and silent text. Include nonglyph material that survives in the frozen range. |
-| Positioned glyphs | GID, local X/Y including shaping offsets, font reference, line/material association, raw scalar anchor with its domain, and a stable association to the logical shaping glyph/cluster. Iteration supplies physical drawing order. |
-| Cluster and replacement records | Logical source ranges and membership in the positioned glyphs, with ordinary and replacement-local coordinates distinguished. Replacement records also retain their whole original-source partition. |
-| Atomic anchors | Paragraph-local atomic ID, containing line/material, physical traversal position, source marker range and precise local border origin. Child layout and paint are resolved by the page integration. |
+| Logical fragment box and lines | Preserve selected local allocation and baselines, with ranges into glyph and atomic tables. These are not ink bounds. |
+| Positioned glyphs | Exact GID, result-local font reference, final X/Y and resolved solid foreground color. |
+| Font entries | Exact retained sized instance plus its captured font-unit-to-big-point conversion. |
+| Atomic anchors | Paragraph-local ID, local line, physical glyph boundary and precise local border origin. Child geometry stays outside. |
 
-The ordered material view connects glyphs, spaces and atomics without forcing a
-consumer to walk the original frozen knots again. A separate logical view relates
-clusters and source ranges. Neither is CSS page paint order.
+All geometry uses fractional big points with Y downward. Glyphs preserve physical
+drawing order. An atomic's `BeforeGlyph` identifies its boundary among selected
+glyphs; atomic-table order distinguishes adjacent anchors at the same boundary.
+Neither sequence is a complete CSS page paint order.
 
-Ordinary unsplit paragraphs can use the same result contract over their complete
-selected line range. A valid empty range produces an empty result with no
-baseline, glyphs or atomic anchors; it does not draw the diagnostic frozen owner
-or imply that the source paragraph itself was empty.
+Spaces, kerns, fill and silent replacements affect the pen through their final
+frozen advances. They do not need public source/material records in the spike.
+A valid empty selection returns empty placement tables and no baseline.
+
+## Construction versus retention
+
+Construction traverses only selected lines, using their original frozen indexes
+and local geometry. It uses retained direction to order each detached text piece
+once. Temporary ordinals or a permutation keep paint/font associations attached
+to the exact glyphs, including repeated anchors and GIDs.
+
+For source-dependent colors, shared render helpers convert scalar anchors to
+processed-byte paint positions while the matching text and replacement facts
+are available. Ordinary and generated coordinate domains remain distinct.
+Only the resolved color survives. Uniform default paint requires no source
+mapping; glyphless material needs no invented color entry.
+
+The existing supported soft-hyphen mapping is reused. A needed but unsupported
+mapping fails construction rather than inventing paint ownership. Semantic
+reconstruction is not a condition for rendering uniformly colored glyphs.
+
+Publication validates glyph conservation, ordering, finite geometry/scales,
+font references and selected atomic correspondence. Source/cluster checks are
+construction-time checks where needed for association and paint. There is no
+public cluster graph or requirement to preserve all consumed source.
 
 ## Ownership contract
 
-| Object | Ownership and lifetime |
+| Object | Ownership |
 | --- | --- |
-| Placement, line, material, cluster and anchor records | Owned by the result as a completed immutable snapshot. Construction must copy temporary ordering buffers and all mutable nested mapping data it retains. |
-| Public inspection values | Scalars may be returned by value. Slice access must return independent copies or use another explicit read-only inspection API; no writable backing arrays or maps escape. |
-| Processed and replacement text | Retained as immutable text storage. Sharing stable strings is acceptable; borrowing mutable input buffers is not. Ranges keep their declared domain rather than silently rebasing to a suffix. |
-| Font instances | Strong references keep the face/scale objects reachable, but the result borrows their services and does not acquire ownership of resource closure. |
-| Ordering service and build scratch | Used during construction only. The completed result retains neither service callbacks nor scratch buffers. |
-| Optional paint-source lookup | Owns immutable processed-byte anchors indexed by physical glyph index and retains its exact fragment result. It adds no paint spans, font-service ownership or working layout state. |
-| Preparation, fitter, trial and pagination state | Not retained. Keeping original index provenance must not require keeping execution alive. |
-| DOM/source lookup, paint spans and page/atomic bindings | Supplied and retained separately by the integration while needed. They are not hidden callbacks captured by the glyph result. |
-| Outline caches and backend registries | Owned by their consumers. No paths, PDF resource names, used-glyph registries or mutable backend objects enter the result. |
+| Placement, line, color and atomic records | Owned immutable snapshot; read-only indexed access returns values. |
+| Font instances | Strongly referenced, but face/scale services remain borrowed and stable for their consumers. No closing or rebinding by the result. |
+| Paint spans, source strings and temporary mappings | Borrowed or read during construction; not retained after publication. |
+| Ordering service and scratch | Used only during construction; no callbacks or scratch arrays retained. |
+| Original fragment and frozen arena | Not retained by the completed result. |
+| Page occurrence and child bindings | Owned by the bridge; qualify paragraph-local atomic IDs and retain matching selected geometry. |
+| Folio fonts, PDF names and embedding caches | Owned locally by `docrender`; absent from typography output. |
 
-The proposed storage target is detached **selected records**. Keeping source text
-alive may retain the complete processed paragraph, but should not require a
-backlink to the full frozen shaping arena merely to resolve a text range. If a
-shared source view would retain that arena, make the tradeoff explicit before
-adopting it. Exact text storage and provenance-token implementation remain open.
+The result can outlive preparations, trials and original fragment handles.
+Dropping it releases references but never closes a font service or invalidates
+another result. Numeric/color inspection is read-only and can be concurrent;
+backend/font service calls follow their separate concurrency contracts.
 
-Inspection of stored numeric/source facts requires no font queries. Dropping a
-result releases its references; it never closes a face or invalidates another
-result. Concurrent read-only inspection is compatible with immutable records.
-SVG/PDF service concurrency remains governed by those services, independently.
+Paint is a captured drawing value. Repainting with different spans means building
+a new small result from retained input, rather than keeping semantic text alive
+solely for later recoloring. No mutable CSS styles are captured.
 
-## Font references
+## Font and positioning authority
 
-Each font entry denotes the exact existing `contracts.FontInstance` associated
-with the selected shaping records. It preserves the opaque face, physical em
-size and retained scale. Capture the finite positive numeric conversion used
-during construction so downstream consumers can scale outlines consistently
-without rebinding the face or recomputing positions.
+A GID is interpreted with its exact sized font instance. Deduplication is not
+required; do not merge by family name or compare arbitrary opaque face values.
+Capture the scale used during construction so SVG outline scaling and numerical
+inspection do not need rebinding.
 
-References are result-local handles, not font-family names, file paths or PDF
-resource names. A GID is interpreted together with its referenced face. Two
-glyphs with the same numeric GID but different font entries need not represent
-the same outline.
+The chosen shaper determines glyph selection and shaping advances/offsets.
+Layout supplies baselines, final knot advances and atomic geometry. The result
+captures their combined final positions. Folio's nominal widths cannot replace
+these positions or drive a second layout.
 
-Sharing a font entry within a result is allowed when the instance relationship
-is known. Deduplication is not required for correctness. Do not assume arbitrary
-`FontFace` implementations are comparable, or merge sized instances by family
-name or content hash. Cross-result font-resource caching belongs to consumers
-with an explicit identity/capability policy.
-
-The result promises usable retained placement facts, not universal embedding or
-outline support. `font.ResourceFace` is an optional capability. An SVG or PDF
-consumer may need to validate it or use an explicitly supplied adapter, and may
-reject a face it cannot use. Such rejection leaves the result intact. The
-traversal does not load fonts, select fallbacks, extract outlines, obtain embedding
-descriptors or assign resource identities.
-
-Current `FontInstance` binds size only. This sketch does not invent variation or
-synthetic-style identity absent from the retained contract. Those would need
-explicit upstream representation before a backend could rely on them.
+Folio may create a separate private font model from the same immutable binary.
+`docrender` owns that association, the font resource capability checks and any
+backend-specific descriptors or subsetting requirements. Generic typography and
+pagelayout do not acquire Folio types or font-metric requirements.
 
 Sources: [font instance](../../khipu/contracts/font_instance.go),
-[opaque face contracts](../../khipu/contracts/font_api.go),
-[optional resource identity](../../typography/font/identity.go).
+[current traversal](../../typography/render/paragraph.go),
+[resource capability](../../typography/font/identity.go).
 
-## Source and cluster correspondence
+## Atomic and page boundaries
 
-### Coordinate domains
+Copy local border origins from `Fragment.AtomicPlacements()`. A knot's advance
+is not the border origin; signed margins can produce negative advances and
+decreasing X positions. Preserve traversal order and selected-line membership.
 
-Preserve three distinct domains:
+The bridge binds anchors to selected child boxes/interior paragraphs and
+retains border/content offsets. It must avoid duplicate child traversal and
+choose one authoritative transform path. Current pagelayout CSS float32
+composition and precise local float64 anchors require an explicit precision
+contract; adding both origins is not valid.
 
-| Domain | Available within the result | External association |
-| --- | --- | --- |
-| Processed paragraph | UTF-8 text, byte ranges and separately identified scalar ranges/anchors. Ordinary shaping clusters address this domain. | Pagelayout identifies the source group and placed occurrence. |
-| Generated replacement | Exact selected replacement text and its local byte/scalar coordinates, linked to the original paragraph partition represented by that replacement half. | A supported mapping policy can associate individual replacement anchors with processed paint; arbitrary spelling changes do not imply such a mapping. |
-| Original decoded HTML | Not owned or reconstructed by this result. | `Input.TextSources`, `FragmentGroup.Coverage` and a retained source lookup connect processed bytes to original nodes and decoded bytes. |
+CSS paint traversal remains a separately encapsulated algorithm with open module
+ownership. Neither this result's atomic order nor its line/glyph tables assigns
+that algorithm to typography or `docrender`, or decides display-list structure.
 
-Original line/knot indexes belong to the particular frozen owner from which this
-result was built. Continuation fragments may have different frozen owners while
-sharing a processed paragraph. The page bridge maintains that relationship; text
-equality, `SourceOffset`, a bare knot index or equal GIDs cannot establish it.
-The result's provenance scope must qualify its indexes without becoming a public
-resumption token or forcing a dependency on pagelayout identities.
+Sources: [fragment geometry](../../typography/layout/fragment.go),
+[atomic composition experiment](../../tytui/documentlayout/proof_fragment_boxes.go),
+[page conversion](../../pagelayout/preparation/typography/fit.go).
 
-### Physical glyphs and logical clusters
+## Deferred work
 
-Each positioned glyph retains an unambiguous link to its original shaping
-ordinal and cluster membership within the associated text material. Reordering
-must carry that association along. `FrozenCluster.FirstGlyph/GlyphCount` describes
-the original copied glyph slice; those ranges cannot be used unchanged against
-a visually reordered slice.
-
-For example, one ligature glyph for `ffi` can associate with processed bytes
-`[1,4)` in `office`. That range remains one cluster even if its text came from
-several HTML nodes. Conversely, a base plus marks can have several glyphs sharing
-an anchor. Preserve membership without treating the anchor or GID as a unique
-glyph identifier. Do not require every logical cluster to map to a contiguous
-interval in the physical glyph view; the representation must support the actual
-ordering association.
-
-The [API proposal's cluster invariants](immutable_fragment_result_api_proposal.md#cluster-invariants)
-make the permutation, unique material ownership, exact inverse membership and
-source-domain validation publication requirements. Retained direction is
-inspection metadata; it does not ask consumers to reorder again or provide a
-complete bidi/reading-order model.
-
-Record scalar anchors and byte ranges with distinct meanings. A raw `Cluster`
-number is not an offset into a UTF-8 string. If a helper provides a processed-byte
-paint anchor, distinguish that derived value from the raw shaping anchor and
-from a full cluster range. Availability must be explicit; zero is a valid offset,
-not an unknown sentinel.
-
-### Replacements and material without glyphs
-
-A selected pre/post-break replacement has two associations: its clusters address
-generated text, while the frozen knot records the original paragraph partition
-it represents. Retain both. A visible hyphen inserted for an authored soft hyphen
-does not establish a general per-character mapping for all generated text.
-The [proposed shared `PaintSources` helper](immutable_fragment_result_api_proposal.md#shared-paint-source-mapping)
-returns a complete immutable lookup for one result, using the existing supported
-policy. Unknown mappings fail explicitly without changing the placement result.
-The helper validates selected text materials, including silent replacements,
-and returns no partial map. Each valid glyph index maps to a processed-byte
-anchor; zero is a valid value, while failed mapping is a construction error.
-
-Material can consume or represent source without producing a glyph. Preserve
-retained spaces, silent replacement records and generated-fill distinctions.
-Generated fill has no authored text. An empty glyph list must not be interpreted
-as no source material.
-
-There is also a limit to what traversal can recover: trimmed spaces and other
-omitted source may be absent from the frozen material. The result describes its
-selected retained material; it does not promise complete consumption coverage.
-Pagelayout's fitted-prefix endpoints and source coverage remain available in the
-outer association. If a later standalone semantic consumer needs complete
-consumption in this result, define an explicit neutral input for that information;
-do not infer it from the first/last glyph or import `glyphing/paragraph` into
-`render` to obtain it.
-
-These mappings permit later semantic output. They do not yet select `/ActualText`
-spans, whitespace recovery or reading order across page frames and channels.
-
-Sources: [frozen shaping provenance](../../khipu/frozen_result.go),
-[prefix coverage limits](../../typography/glyphing/paragraph/prefix_coverage.go),
-[paint mapping](../../typography/render/paint_sources.go),
-[pagelayout source joins](../../pagelayout/preparation/typography/fit_sources.go).
-
-## Atomic anchors and child ownership
-
-An anchor represents a selected atomic occurrence in this paragraph. Its ID is
-paragraph-local. Pair it with the external paragraph/occurrence association when
-looking up a child; the same numeric ID can appear in another group.
-
-The anchor's X/Y is the authoritative retained **local border origin**, in
-fractional big points. Copy it from `Fragment.AtomicPlacements()` and associate
-it with the corresponding `FrozenKhipu.Atomic(knot)` entry. The knot's advance is
-needed for the surrounding pen; it is not a replacement for the border origin.
-Zero or negative advances can yield coincident or decreasing X coordinates, so
-preserve physical traversal order rather than sorting by X.
-
-The result owns no child CSS tree, child glyph result, image or drawing callback.
-The page bridge binds the anchor to the consumed box and its interior paragraph
-occurrences through `GroupInput.Occurrences` and `ParentAtomic`. Those child
-results are composed separately. Authored U+FFFC remains ordinary text unless
-there is an explicit retained atomic occurrence.
-
-Validate one matching anchor record for each selected atomic knot and no anchors
-from excluded lines. The bridge then ensures each included child interior is
-painted once for that occurrence. A separate flat pass over all child groups
-must not duplicate the interior already reached through its anchor.
-
-Pagelayout publishes already-resolved child origins in CSS `float32`; tytui's
-experiment can instead preserve precise atomic placement and apply content-edge
-offsets. The result retains precise local anchors so information is not lost at
-this boundary. Choosing the page-level authoritative transform remains a separate
-contract; adding both origin paths would translate the child twice.
-
-Sources: [retained atomic placement](../../typography/layout/vlist.go),
-[fragment validation](../../typography/layout/fragment.go),
-[source atomic occurrences](../../pagelayout/content/extract.go),
-[tytui atomic composition](../../tytui/documentlayout/proof_fragment_boxes.go).
-
-## Publication and consumer invariants
-
-Before publication, validate associations and ranges, matching selected lines,
-valid font references, finite positions and scale, glyph/cluster membership,
-and the atomic correspondence. Retained processed text must come from the
-matching frozen source or an explicitly validated source binding; equal text
-alone does not establish document identity. All-or-nothing publication leaves the frozen
-input unchanged. Errors preserve their cause and the relevant line/material
-context. A consumer's later failure does not mutate the result.
-
-The proposed result is complete enough to replay local glyph positions and join
-their retained source/atomic facts after the original fragment handle is dropped.
-It needs no ordering service after construction. Backend resource use still
-obeys the borrowed-font lifetime, and original HTML joins still require the
-external document association described above.
-
-Planning checks should cover:
-
-- Immutable inspection, including nested mappings and repeated SVG/PDF use.
-- Shared faces at different sizes, font switches, repeated GIDs and missing
-  optional backend capabilities.
-- RTL marks and ligatures, clusters crossing source nodes, replacement-local
-  anchors, retained spaces, silent material and valid offset zero.
-- Atomic anchors at coincident/backward positions, nested interiors represented
-  by separate results, and exclusion of unselected lines.
-- Collection of preparations, callbacks and original fragment handles while
-  completed results remain usable with their borrowed fonts and source storage.
-
-No changes to the sibling implementations are implied by this sketch. The
-[API proposal](immutable_fragment_result_api_proposal.md) offers indexed accessors
-and a minimal result-local provenance scope for review; text storage and safe
-font-entry reuse remain implementation questions. The selected public delivery
-direction is immutable results; any private callback walker is an implementation
-choice. Page paint, display-list operations, backend resource handles and
-serialization remain separate boundaries.
+Original-text retention for rendering, text extraction/search guarantees,
+reading order, accessibility, complete consumption mapping and semantic PDF
+spans are later concerns. Rich CSS effects are also outside the first target.
+Future extensions should follow demonstrated responsibilities and requirements;
+the spike does not reserve an unused semantic subsystem in its public result.

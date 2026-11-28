@@ -1,338 +1,164 @@
 # Reusing retained glyph traversal without outlines
 
-**Status:** Planning sketch, 28 November 2026. A complete immutable result per
-selected typography paragraph fragment is the working public boundary. Concrete
-Go APIs and display-list representation remain undecided.
+**Status:** Planning sketch for the two-page PDF spike, 28 November 2026.
+[REMARKS.md](REMARKS.md) governs scope. The working public boundary is a complete
+immutable result per selected typography paragraph fragment. Semantic text is
+deferred; CSS paint traversal ownership and display-list structure are open.
 
-The proposed direction is to separate retained glyph placement from proof
-decoration inside `typography/render`. Its existing paragraph and fragment proof
-builders would consume the same placement logic as a future glyph-based painter.
-Outline extraction, font identity lookup and outline bounds would become
-consumer capabilities. The page bridge would continue to own occurrence identity,
-page placement, atomic interiors and CSS painting order.
+The reusable work belongs near the existing `typography/render` traversal:
+select retained lines, walk physical knots, order detached text pieces, accumulate
+retained advances, resolve foreground paint and publish local glyph positions.
+Outline extraction and PDF resources remain consumer work.
 
-This develops the glyph-traversal item in the
-[painter boundary inventory](pagelayout_painter_boundary_inventory.md), using
-`tytui/tycli` as integration evidence. The intended dependency direction remains
-`docrender` toward typography and pagelayout; neither library acquires Folio or
-workbench dependencies.
+The [API proposal](immutable_fragment_result_api_proposal.md),
+[ownership sketch](immutable_fragment_result_sketch.md) and
+[walkthrough](immutable_fragment_result_walkthrough.md) develop this boundary.
 
-The [immutable result sketch](immutable_fragment_result_sketch.md) develops its
-contents and ownership, including fonts, source/cluster mappings and atomic
-anchors. The callback comparison below records the tradeoffs behind this direction.
-The [minimal Go API proposal](immutable_fragment_result_api_proposal.md) sketches
-construction and read-only accessors without implementing that boundary.
+## Current coupling and proposed separation
 
-## Current coupling
-
-The shared implementation already has a useful division:
-
-| Existing code | Work performed | Proposed treatment |
+| Current code | Responsibility to reuse | Consumer-specific work to separate |
 | --- | --- | --- |
-| `BuildParagraphProof` and `BuildFragmentProof` | Validate retained inputs and select local line placements with original frozen line/knot identities. | Preserve the two input cases and share their traversal. A fragment renders only its published range. |
-| `appendLine` | Use retained baselines and left skips; visit physical knots; advance through every knot's final width. | Move this responsibility into the common placement traversal. |
-| `appendText` | Validate the font instance, identify its resource, map source paint, apply visual order, scale offsets and advances, and construct glyph positions. | Separate placement and raw provenance from identity and paint decoration. Keep one implementation of the positioning arithmetic. |
-| `appendGlyph` | Validate the origin, request an outline, extend conservative bounds, and append a proof glyph. | Keep origin validation common; make outlines, path storage and outline bounds part of the proof consumer. |
-| `render.Backend` | Combines `VisualOrder` and `Outline`; `Services` also requires an identity provider. | Let consumers request ordering, outlines and identity independently. An adapter may still implement all three. |
+| `BuildParagraphProof` / `BuildFragmentProof` | Select completed paragraph or fragment placements with correct original indexes. | Proof record format and outline-bound accumulation. |
+| `appendLine` | Start from retained baseline/left skip; traverse physical knots and advance through every final knot width. | General box painting is not performed here. |
+| `appendText` | Use retained font scale, apply visual order once, resolve glyph paint from supported source mappings, accumulate shaped advances/offsets. | Font identity lookup and outline acquisition. |
+| `appendGlyph` | Validate/store final origin and resolved foreground. | Path storage and outline-derived bounds. |
+| `Backend` / `Services` | Expose a narrow ordering capability without requiring outlines. | Outline parser/cache and resource identity capabilities. |
 
-Sources: [paragraph proof](../../typography/render/paragraph.go),
-[fragment proof](../../typography/render/fragment.go),
-[service contracts](../../typography/render/services.go).
+Sources: [paragraph traversal](../../typography/render/paragraph.go),
+[fragment entry point](../../typography/render/fragment.go),
+[services](../../typography/render/services.go),
+[paint mapping](../../typography/render/paint_sources.go).
 
-## Responsibility sketch
+## Responsibility boundaries
 
-```text
-Frozen paragraph or selected fragment + retained placements
-                         |
-                         v
-typography/render: local placement and raw source correspondence
-    retained lines → physical knots → ordered glyphs and atomic anchors
-                         |
-              +----------+----------------------+
-              |                                 |
-              v                                 v
-Existing proof consumer                docrender page bridge and painter
-paint + identity + outlines             paint + occurrence/source joins
-conservative outline bounds            page origins + atomic interiors
-              |                        CSS paint order and decorations
-              v                                 |
-tycli SVG demo                                  v
-                                      Backend-neutral painting boundary
-                                                |
-                                                v
-                                      PDF or other output backend
-```
-
-The arrows describe responsibilities. They do not imply materialized arrays,
-callbacks, nested drawing operations or any other display-list structure.
-
-| Owner | Responsibility |
+| Responsibility | Owner or placement |
 | --- | --- |
-| Typography layout and khipu | Publish selected immutable lines, knots, glyphs, clusters, font instances and atomic placements. Shaping, breaking and line assembly remain complete before traversal. |
-| Typography render traversal | Select retained lines, preserve their indexes, apply directional ordering once per detached glyph fragment, and compute local glyph origins from retained scale/offsets/advances. Preserve raw source associations and atomic positions/order. |
-| Typography render paint helpers | Map glyph source anchors to processed-byte paint ranges using the existing supported replacement rules. Provide the same mapping to proof and page consumers. |
-| Typography proof consumer | Produce current proof glyphs, resolve proof colors/identity, obtain outlines, and calculate conservative proof bounds. |
-| Docrender page integration | Join typography output to pagelayout occurrences, source coverage and resources; apply page/frame origins once; coordinate atomic interiors. |
-| Docrender painter | Determine CSS paint order and convert resolved box/text paint into backend-neutral drawing semantics. It does not compute glyph advances again. |
-| Output backend and font adapter | Convert to device coordinates, encode glyphs, register/embed resources and serialize output. Font-format capabilities remain separate from glyph placement. |
-| Tytui | Exercise these responsibilities with visible demos and regression cases. Its private tree, frame scheduler and proof format impose no compatibility requirement. |
+| Glyph selection, shaping advances/offsets | User-chosen shaper through the existing typography/khipu contracts. |
+| Breaking, final spacing, baselines and local atomic placement | Existing layout stages; rendering does not repeat them. |
+| Reusable selected glyph traversal and temporary paint-source mapping | Proposed in `typography/render`, sharing current algorithms. |
+| Source paint projection | Caller/integration supplies resolved foreground spans, separately from shaping styles. |
+| Page/paragraph occurrence binding and atomic child geometry | Page bridge; compose selected geometry once. |
+| CSS paint traversal | Separate algorithm; module ownership remains open. |
+| Outline proof construction | SVG/proof consumer, using retained fonts and positions. |
+| Folio font pairing, resource registration and PDF serialization | `docrender`, isolated from upstream modules. |
+| Experiments and visible demos | `tytui`, especially `tycli`; not a compatibility requirement. |
 
-## Minimum information crossing the traversal boundary
+This distinguishes two traversals. Glyph traversal replays completed typography.
+Page paint traversal determines the interleaving of supported box paint, text and
+atomic interiors. Sharing the first does not assign or implement the second.
 
-The current `render.Glyph` is a proof record: it contains a path and a face hash,
-but lacks a retained font capability and full cluster correspondence. The shared
-boundary needs the following information, with its eventual grouping left open.
+## A smaller retained boundary
 
-| Information | Why it must survive |
-| --- | --- |
-| Glyph ID and final local origin | A consumer can draw without interpreting shaping advances again. Positions remain fractional `float64` big points, with Y downward. |
-| Retained font instance | The GID's face, physical em size and retained scale remain available. A hash cannot substitute for the face/resource capability. This can be associated once per group of glyphs. |
-| Font-unit scale | Outline consumers still need the conversion used by placement. Preserve it consistently with the retained instance; consumers must not select a different size or reconstruct a face. |
-| Local line index, original frozen line and knot identity | Fragment-local geometry can be joined to the original horizontal material without replaying an accepted prefix. Qualify these identities by their frozen owner. |
-| Glyph-to-logical-source association | Keep raw scalar anchors, cluster ranges and their coordinate domain. Ordinary text is paragraph-relative; generated replacements have local shaping coordinates and separate original-source partitions. |
-| Line and knot facts | Retained widths, source ranges and material kind distinguish visible text, spaces, silent replacements and generated fill. Consumers needing semantics must be able to inspect non-glyph material. |
-| Atomic occurrence and placement | Preserve where an atomic appears in physical knot traversal and its precise retained border origin. The page layer can associate and paint its interior without treating the atomic as a glyph. |
+The result keeps glyph IDs, exact sized font references, captured scale, final
+local origins, resolved foreground colors, logical lines and atomic anchors.
+It keeps no paragraph/replacement text, source ranges, cluster table, logical
+glyph ordinals or persistent source-to-paint map.
 
-This boundary can expose a view over retained facts or detached records. It must
-not force each glyph to duplicate all font/source metadata. Document-specific
-`FragmentID`, frame IDs, HTML nodes, PDF font names, paths and outlines stay out
-of the local placement contract.
+Direction, cluster provenance and scalar anchors remain available during
+construction. A permutation or ordinal-bearing scratch record preserves the
+association between glyphs, fonts and colors while ordering. Identical GIDs or
+anchors cannot establish identity. Knots are already physical; never sort them,
+glyphs or atomics by X.
 
-### Preserve both physical and logical order
+Temporary cluster intervals refer to the original logical glyph snapshot. If
+needed for validation or paint association, translate them through the ordering
+association. They do not become a public semantic result or a new source
+coverage requirement.
 
-Frozen knots are already in physical order. `CopyText` returns a detached glyph
-slice in retained shaping order; the current renderer applies `VisualOrder`
-once to that slice. Its source metadata must remain associated after ordering.
+For nonuniform foreground, reuse the existing ordinary-text and explicit
+soft-hyphen paint mapping. Keep byte and scalar domains distinct and report
+unsupported mappings when they are needed to choose paint. A single default
+color needs no source reconstruction. Silent material still advances the pen
+but produces neither a glyph nor a color record.
 
-`FrozenCluster.FirstGlyph/GlyphCount` indexes the original snapshot slice. Those
-indexes cannot simply be reused against a reordered slice. A revised boundary
-must preserve an association, for example by carrying a logical index with each
-ordered item or obtaining an ordering permutation. The choice is open. Matching
-by GID or assuming one unique glyph per scalar anchor would lose information for
-repeated glyphs and marks.
+The completed result can release source strings, snapshot copies and ordering
+scratch. Source information required upstream by fitting and pagination remains
+with those stages. Deferring semantic PDF output does not change their contracts.
 
-The current `PaintSources` helper maps anchors to processed-byte color ownership.
-Reuse its supported rules; do not reinterpret its one-anchor lookup as a complete
-Unicode span. Original source-node joins and logical reading order remain with
-the document integration. Trimmed spaces and silent material cannot be recovered
-by visiting visible glyphs alone.
+## Position and font authority
 
-Sources: [frozen text and cluster contracts](../../khipu/frozen_result.go),
-[shaped glyph records](../../khipu/contracts/shaping_stream.go),
-[paint source mapping](../../typography/render/paint_sources.go),
-[pagelayout source coverage](../../pagelayout/preparation/typography/fit_sources.go).
+For each selected text piece, start at the line's current knot pen and retained
+baseline. Apply scaled shaping offsets to each glyph origin; advance the inner
+pen by shaped advances. Advance the enclosing knot pen by the frozen knot width,
+including final spacing and glyphless material. This is the existing placement
+arithmetic, not a new measurement step.
 
-## Capability changes
+The result's final origins are authoritative for consumers. Folio may need
+nominal font widths for its own PDF data, but they must not determine a different
+glyph sequence or replace these origins. A first backend can place glyphs
+explicitly; optimized batching is later work and must preserve placement.
 
-**Ordering becomes independently consumable.** The OpenType rendering service's
-`VisualOrder` method delegates to `otshape.VisualOrder` without using its font
-parser/cache. A narrow ordering capability can therefore be supplied without
-outline access. Keep the adapter dependency in its existing layer; the generic
-render package need not import a concrete OpenType implementation. Strengthen
-the ordering contract as needed to preserve the logical association above.
+A result's font instance preserves opaque face/size/scale services. It does not
+require a resource hash, outline capability or PDF descriptor during placement.
+`docrender` separately obtains the corresponding immutable font binary and may
+let Folio parse it into its own model. Duplicate parsing is acceptable here.
+No parsed-font accessor or Folio-specific metric surface is required upstream.
 
-**Placement does not require resource identity.** It uses the already-bound
-`FontInstance` and its retained scale. It does not call `FontFace.Scale` to bind
-again, query line metrics, hash resources or open font bytes. A PDF consumer can
-later reject a face it cannot embed; that is distinct from an inability to
-position its glyphs.
+## Atomic composition and paint traversal
 
-**Paint decoration remains reusable and separate.** A geometry consumer needs
-only retained layout/shaping facts. The immutable result retains the matching
-complete processed text and each text material's direction. The
-[proposed `PaintSources` helper](immutable_fragment_result_api_proposal.md#shared-paint-source-mapping)
-maps that result's physical glyph indexes to processed-byte paint anchors in a
-separate immutable lookup. The consumer applies its matching paint spans.
-Preserve explicit failure for unsupported generated-text mappings without
-invalidating placement. The existing proof's named/hex color validation belongs
-with its paint decoration; it should not become an accidental color-format
-restriction on all future backends. Pagelayout already supplies checked
-`color.NRGBA` values, so the page bridge need not serialize colors to SVG strings
-to position text.
+The result retains each included atomic's local border origin and its boundary
+among physical glyphs. Adjacent atomics can share that boundary and retain
+their order in the atomic table. Negative/zero advances are valid. The result
+does not contain child boxes, child glyph results or drawing callbacks.
 
-**Outlines and bounds are optional consumer work.** The SVG proof consumer asks
-for outlines and extends bounds with their control points. A glyph-based consumer
-can use local positions without any outline requests. Line allocation bounds
-remain available, but an outline-free result must not label them as ink bounds.
-Bounds policy must stay explicit for callers that crop previews or size a canvas.
+The bridge qualifies IDs by paragraph occurrence, joins selected child geometry,
+and avoids duplicate descent. The existing tytui walker demonstrates precise
+local-anchor composition with content-edge offsets. Pagelayout also publishes
+already-resolved origins through CSS float32 coordinates. A bridge contract must
+choose an authoritative path and precision; the result does not settle it.
 
-Sources: [OpenType rendering service](../../typography/render/adapter/opentype/render.go),
-[font instance](../../khipu/contracts/font_instance.go),
-[retained resource capability](../../typography/font/identity.go),
-[pagelayout text paint](../../pagelayout/content/extract.go).
+The CSS paint algorithm must separately specify normal-flow ordering for the
+accepted print profile. Its inputs, outputs and invariants should be described
+before choosing a module home. A flat pass over all paragraph groups, a BoxID
+sort, and the diagnostic SVG box loops do not establish that contract.
 
-## Page composition and atomic interiors
+Sources: [tytui fragment composition](../../tytui/documentlayout/proof_fragment.go),
+[child composition](../../tytui/documentlayout/proof_fragment_boxes.go),
+[page atomic conversion](../../pagelayout/preparation/typography/fit.go).
 
-The traversal operates in paragraph-local coordinates. Docrender supplies the
-page and receiver placement from frozen pagelayout output. It preserves local
-precision and applies the receiving origin once; it does not add ancestor margins
-or padding again.
+## Callbacks versus the working result direction
 
-Atomic occurrences need an ordered association to surrounding text, even if the
-first consumer merely records their positions. Typography exposes that anchor;
-it does not descend into HTML/CSS children. The page layer associates the anchor
-with the correct retained interior occurrence and chooses the required paint
-sequence. A list containing only glyphs would otherwise force the page layer to
-walk knots a second time to recover the missing structural positions.
-
-The existing tytui fragment walker demonstrates the association and guards
-against duplicate descent. It preserves precise atomic border origins and adds
-content-edge offsets. Pagelayout's interior group origins are already resolved
-through CSS `float32` geometry. Before combining those paths, agree on which
-placement is authoritative and what precision is promised. This is a separate
-page-boundary decision; extracting the shared glyph traversal does not settle it.
-
-Sources: [tytui fragment walker](../../tytui/documentlayout/proof_fragment.go),
-[atomic subtree composition](../../tytui/documentlayout/proof_fragment_boxes.go),
-[pagelayout placement conversion](../../pagelayout/preparation/typography/fit.go).
-
-## Callbacks and a returned result
-
-Both candidates perform the same synchronous traversal over selected immutable
-material. They preserve local positions, logical correspondence and atomic
-anchors, and require no live preparation or pagination session. Their difference
-is when consumers receive those facts and who owns the storage.
-
-For this comparison, callbacks borrow read-only records for the duration of each
-call; a returned result owns completed placement/source records and exposes them
-read-only. These are proposed ownership contracts, not automatic properties of
-callbacks or Go structs. Giving each callback transferred storage would reduce
-the borrowing hazard but change its allocation cost.
-
-| Concern | Synchronous callbacks | Complete returned result |
+| Concern | Synchronous callbacks | Complete immutable result |
 | --- | --- | --- |
-| Publication | A consumer observes records while traversal is still running. | A consumer receives the result only after all selected material succeeds. |
-| Slice ownership | Scalars can be copied. Retaining a batch requires copying borrowed slices and any mutable nested metadata. Copying a slice header is insufficient. | Result storage remains stable through later inspections. Private backing storage with copied accessors, or another explicit read-only contract, must protect it from mutation. |
-| Font lifetime | Borrowed face/scale services must remain usable during traversal and for anything the consumer retains. | The result retains font-instance handles, whose underlying services must remain usable through later consumption. It does not own or close those resources. |
-| Traversal error | Earlier callbacks have already occurred. An error stops further delivery but cannot undo their effects. | Return an error with no result. Private partially built records can be discarded without affecting a consumer. |
-| Consumer error | A callback can stop traversal with an error; preserve its cause and line/knot context. | SVG or PDF may fail after successful construction; the immutable placement result remains reusable. |
-| Early termination | Natural, if the contract distinguishes an intentional stop from complete traversal. A callback error is not a complete success. | The proposed complete-result operation traverses the whole selected fragment. Selecting a smaller retained range remains a separate input choice. |
-| Reuse | Consumers can collect or fan out records during one traversal. Otherwise each traversal repeats placement and visual ordering, without reshaping. | SVG, PDF and diagnostics can inspect the same positioned data without rerunning visual ordering or pen accumulation. |
-| Peak placement storage | Can be limited to the current line/knot/batch and source association data if consumers do not collect. Current `CopyText` still allocates detached shaping snapshots. | Storage scales with the selected fragment's glyphs and retained metadata. Font programs need not be copied into every result. |
-| Backend storage | Buffering, outline data, semantic spans and PDF resource state may still dominate memory. | The placement result is additional storage; consumers can release it after their required passes. Neither choice requires retaining a whole document. |
-| Concurrency | A callback is synchronous; it does not imply parallel traversal, safe reentry or a goroutine protocol. | Immutable records can be shared, but borrowed font/backend service guarantees still govern concurrent use. |
+| Publication | Earlier records may be observed before a late failure. | No result is published until selected construction succeeds. |
+| Ownership | Retained buffers require copying and explicit borrowing rules. | Private completed storage exposes read-only value access. |
+| Reuse | A consumer can collect records; otherwise ordering/placement repeats. | SVG and PDF inspect the same settled positions and colors. |
+| Failure | Consumer effects require their own discard or partial-delivery policy. | Backend failure leaves the result reusable. |
+| Storage | Can stay near one piece if consumers do not collect. | Scales with selected glyphs and anchors, without semantic text retention. |
 
-Both forms can accidentally retain more than expected. A closure may capture a
-preparation or result owner; a returned source view may keep an entire frozen
-paragraph alive even when only a few lines were selected. Lifetime checks should
-distinguish required font/source retention from unwanted execution state.
+The working direction remains one immutable result. A private callback walker
+can build it without establishing a second public protocol. Fonts remain
+borrowed in either design. No result needs to retain a preparation, trial,
+fitter or pagination session.
 
-### Error boundaries
+Construction now includes the foreground values needed for drawing. Unsupported
+source-dependent paint can therefore fail construction, while uniformly colored
+placement does not depend on source mapping. Outline/resource/serialization
+failures remain later consumer boundaries.
 
-There are three distinct completion boundaries:
+## Experimental evidence and next planning checks
 
-1. **Placement:** selected glyphs, local geometry and raw correspondence are
-   traversed successfully.
-2. **Consumer construction:** SVG outlines/bounds or backend painting/resources
-   are prepared successfully.
-3. **External delivery:** serialized output is written successfully.
+`tycli` exercises ordinary SVG proofs and positioned fragment/flow proofs.
+Its documentlayout experiment demonstrates retained geometry, font reuse, RTL
+and ligatures, selected atomic interiors and precise origin composition. Its
+document profile is narrower than the independent typography paragraph pipeline;
+manual replacement evidence comes from typography's prefix-render tests.
 
-A complete placement result makes the first boundary all-or-nothing. It does
-not guarantee success at the other two. A late missing outline, unsupported
-embedding capability or write failure can still occur.
-
-Callbacks can preserve all-or-nothing proof construction by accumulating into a
-private collector and publishing only on success. Directly mutating a backend
-during callbacks needs its own discard/commit strategy or an explicit
-partial-delivery contract. A resource registry may already have changed even if
-no output bytes have been written. Prevalidating inputs does not eliminate later
-ordering, consumer or I/O failures.
-
-For example, if SVG outline extraction fails on the last glyph, the current
-proof builder must still return no proof. With a complete placement result, the
-outline consumer discards only its private proof; placement remains available
-for another consumer. With callbacks, the proof wrapper discards its accumulated
-records and a retry normally traverses again. Neither approach rewrites the
-frozen input or silently resumes at an inferred glyph offset.
-
-If a callback fans out to SVG and PDF, failure in one consumer does not undo
-work in the other. Separate consumers of a completed result make independent
-failure and retry easier to express. Retrying a PDF consumer still requires
-valid backend state; reusing the placement result alone does not reset it.
-
-### SVG reuse
-
-The existing proof builder already accumulates glyph paths, lines and bounds
-before publishing. A callback collector fits that implementation, but offers
-limited storage savings while those complete proof records are still required.
-Streaming SVG also needs a policy for the viewport, whose outline-based bounds
-may only be known after traversal: buffer, make another pass, or accept an
-explicit viewport supplied by the caller.
-
-A returned placement result lets the SVG consumer resolve paint/identity,
-extract outlines and calculate bounds separately. It adds a placement buffer,
-but the same local positions can then support inspection or another output
-format. Outline failure must not mutate that reusable result. Outline-free
-logical bounds remain distinct from conservative outline bounds.
-
-### PDF reuse
-
-A callback can feed the page painter or an intermediate collector incrementally.
-It must still respect page paint ordering and source-span decisions; per-glyph
-callback order alone does not decide CSS paint order or PDF text spans. Resource
-registration and writing are later responsibilities with their own error state.
-
-A returned result supports separate inspection of font requirements, semantic
-coverage and physical positions before replay. Those passes do not need to
-recompute glyph order. Keeping positions local also permits different page
-translations without modifying the result. Resource names, embedding registries
-and extraction policy remain outside it.
-
-Either consumer needs access to line/knot facts and atomic anchors, including
-material without visible glyphs. That requirement is independent of delivery
-shape. It also does not make the placement result a display list: it contains no
-general box paint, clipping, composition groups or page-level operation order.
-
-### Working direction
-
-Use a **complete immutable result per selected typography paragraph fragment** as
-the working public boundary. It matches existing publication behavior, makes SVG/PDF
-reuse straightforward, and keeps placement failure separate from backend
-effects. A paragraph-sized result can serve ordinary unsplit inputs. Callers can
-release results as they finish; document-wide retention is not implied.
-
-A private callback traversal is compatible with that choice: one collector builds
-the result, and proof consumers share the same placement algorithm. Public
-callback access can remain an option if measured allocation or one-pass consumer
-needs justify its lifetime and partial-delivery contracts. Supporting both public
-forms immediately would add contracts before that need is demonstrated.
-
-As the contents and ownership contract develop, measure peak retained memory and
-repeated-pass cost on representative selected fragments. Check that consumers can preserve
-source/atomic associations, that no execution owners leak, and that font services
-remain correctly borrowed. Exact result types, callback granularity and storage
-representation remain open, independently of the display-list design.
-
-## Proposed sequence and evidence
-
-1. **Factor the existing proof traversal internally.** Separate line/knot/glyph
-   placement from outline decoration, preserving the current proof's geometry,
-   colors, source anchors, bounds and failure behavior. Keep one shared path for
-   ordinary paragraphs and selected fragments.
-2. **Exercise placement without resource services.** A diagnostic consumer should
-   receive GIDs, instances, positions and raw correspondence using only ordering
-   and retained scale. Prove that identity, outline, font loading, metrics,
-   rebinding and shaping are not called.
-3. **Resolve source association and atomic output.** Check repeated cluster
-   anchors, RTL marks, ligatures, manual replacement domains, silent material and
-   selected atomic interiors before exposing a public contract.
-4. **Exercise the shared behavior in tycli.** Keep the existing SVG proof as a
-   visible consumer. A second experimental consumer can inspect outline-free
-   records without committing to PDF or to a display list.
-5. **Connect a selected pagelayout page.** Validate occurrence joins, translations,
-   atomic precision and source coverage. Then define the smallest public boundary
-   justified by both proof and page consumers.
-
-Existing evidence to preserve includes
-[retained fragment tests](../../typography/integration/fragment_render_test.go),
+Useful existing evidence:
+[fragment rendering](../../typography/integration/fragment_render_test.go),
 [manual-prefix rendering](../../typography/integration/prefix_manual_render_test.go),
-[tytui placement proofs](../../tytui/documentlayout/proof_fragment_test.go), and
-[directional-order checks](../../tytui/pipeline/visual_order_test.go).
-In addition to before/after comparisons, use independent expected origins for
-signed advances and mark offsets; compare glyph/source conservation across split
-fragments; and ensure empty fragments and late failures publish no partial proof.
+[tytui fragment proofs](../../tytui/documentlayout/proof_fragment_test.go),
+[directional ordering](../../tytui/pipeline/visual_order_test.go).
 
-This work would establish reusable positioned-glyph output. It would not yet
-provide font embedding descriptors, decide `/ActualText` spans, resolve ordinary
-inline backgrounds, or define general CSS stacking/compositing. Display-list
-nesting, operation types, resource handles and replay strategy remain open.
+Planning should now establish:
+
+1. A simple two-page print input and its accepted foreground/box paint.
+2. Detached glyph/color/anchor output using shared typography traversal.
+3. Page occurrence joins and an explicit atomic transform contract.
+4. An encapsulated supported paint-order algorithm, with module ownership open.
+5. A `docrender` font/resource experiment using identical font bytes and
+   authoritative glyph placement.
+
+Semantic extraction and complex CSS effects are not prerequisites for these
+checks. Concrete display-list operations, representation and replay protocol
+remain undecided. No implementation is authorized by this sketch.
