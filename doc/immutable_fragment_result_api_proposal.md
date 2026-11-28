@@ -64,8 +64,9 @@ ordering helper is generic and can order ordinal records; generic `render`
 would still depend only on the injected capability.
 
 Construction is synchronous and all-or-nothing. Validate selected associations,
-source domains, retained directions, permutation bijections, glyph/cluster membership, fonts, finite
-geometry and matching atomic placements before publishing. An error returns
+source domains, retained directions, permutation bijections, glyph/cluster
+membership, fonts, finite geometry and matching atomic placements before
+publishing. An error returns
 `nil` and preserves its cause with original line/knot context where available.
 No new public error hierarchy is needed in this proposal. A valid empty
 selection returns a non-nil result with zero placement counts and no baseline;
@@ -186,6 +187,12 @@ passed to the ordering service. It describes that retained text piece, not the
 paragraph's base direction. It is not inferred again from the text or from glyph
 positions. When `HasText` is false, no direction or font is meaningful; do not
 use an enum's numeric zero as a presence test.
+
+`HasText` preserves the presence of a retained text snapshot and requires a
+valid font-table entry, even when no glyphs were emitted. For text materials,
+`IsReplacement` agrees with pre/post-break provenance; ordinary text has no
+replacement spelling. These discriminants must not be inferred from an empty
+string, an empty range or a zero index.
 
 Direction is inspection metadata after construction. Consumers replay the
 already-ordered glyphs without reordering again. It does not expose embedding
