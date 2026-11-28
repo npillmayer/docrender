@@ -1,11 +1,12 @@
 # Minimal box painting over SelectedBox
 
-**Status:** Planning proposal for the two-page PDF spike, 28 November 2026.
+**Status:** Neutral traversal implemented for the two-page PDF spike,
+28 November 2026; the typography join remains proposed.
 Uses the implemented [SelectedBox API](selected_box_subtree_api_proposal.md)
-and follows [REMARKS.md](REMARKS.md). No traversal implementation, new public API,
+and follows [REMARKS.md](REMARKS.md). No typography bridge, PDF adapter,
 display-list representation or semantic-text requirement is introduced.
 
-The proposed algorithm has two box-level passes within a receiving frame: ordinary
+The implemented algorithm has two box-level passes within a receiving frame: ordinary
 block decoration, then paragraph contents. Inline-block interiors enter only at
 their existing paragraph anchors, and apply the same two passes locally. The
 style-span, cluster, glyph-order and foreground decisions in `khipu`/`typography`
@@ -13,8 +14,8 @@ remain authoritative.
 
 The [Go API and package proposal](box_paint_traversal_api_proposal.md) sketches
 `pagelayout/paint` for this fixed traversal and `pagelayout/paint/typography` for
-the paragraph/atomic join. Both remain proposed packages; no implementation or
-display-list representation is selected.
+the paragraph/atomic join. The neutral package is implemented; the typed join
+remains proposed. No display-list representation is selected.
 
 ## Working scope and frame attachment
 
@@ -24,7 +25,7 @@ opaque solid backgrounds and solid borders. Ordinary inline backgrounds, richer
 effects and general authored stacking levels remain outside this painting spike;
 this does not narrow the loader's existing admission rules.
 
-Propose these attachment rules:
+The neutral traversal implements these attachment rules:
 
 | Boundary | Rule for the spike |
 | --- | --- |
@@ -36,7 +37,7 @@ Propose these attachment rules:
 | Content root background | Paint a selected source root, including a body root, on its selected box rectangle. Do not propagate it to the template page background. |
 | Overflow | Add no implicit frame or content-box clip. If content ink crosses into a later frame, the later frame's painting follows it in catalog order. The physical output page remains the outer boundary. |
 
-Finishing each frame as one painting unit is a proposed attachment policy for
+Finishing each frame as one painting unit is the spike's attachment policy for
 the separate template/content documents. It is consistent with fixed boxes
 forming stacking contexts in
 [CSS Positioned Layout](https://www.w3.org/TR/css-position-3/#painting-order),
@@ -150,7 +151,7 @@ paragraph decisions; it does not revisit strict CSS ordering inside paragraphs.
 
 ## Coordinates and continuation
 
-For the spike, propose using pagelayout's published composed CSS-pixel placement
+For the spike, the traversal uses pagelayout's published composed CSS-pixel placement
 as the box/paragraph coordinate authority. Keep typography glyph offsets in their
 existing local big points. This accepts the current CSS `float32` placement
 precision; preserving additional local-anchor precision can be separate work.
@@ -181,23 +182,26 @@ algorithm. A typography-aware bridge joins paragraph output and atomic children
 without adding typography imports to `content`, template or root orchestration.
 `docrender` handles backend paint and font resources. The
 [API proposal](box_paint_traversal_api_proposal.md) places these responsibilities
-in two proposed packages and sketches synchronous output/paragraph callbacks.
+in the implemented neutral package and proposed typed bridge, with synchronous
+output/paragraph callbacks.
 There is no pluggable paint-order policy or selected output representation.
 
-Existing snapshots supply the required inputs. Before implementation, a small
-fixture should make these checks concrete:
+Existing snapshots supply the required inputs. The neutral traversal tests use
+publicly constructed frozen pages and a fixture backend to check:
 
 - A decorated container continues across two pages with correct fragment edges.
 - An inline-block with its own paragraph paints its interior exactly once, at its
   existing anchor; nested and glyph-free interiors follow the same rule.
 - Two ordinary blocks, including separate roots in one frame, follow the shared
   decoration/content phases when their painted areas overlap.
-- An unused decorated frame still paints, and frame-crossing ink follows catalog
-  order without an implicit receiver clip.
+- An unused decorated frame still paints, catalog order governs frame callbacks,
+  and signed child coordinates remain intact.
 
-These are proposed traversal checks, not new executable tests or extra CSS
-features. The existing paragraph regression cases remain unchanged. Semantic text,
-display-list design and general stacking/effect support stay deferred.
+These checks are executable in [paint tests](../../pagelayout/paint/paint_test.go),
+alongside ownership, atomic-entry, cancellation and callback-failure coverage.
+They do not render glyphs or verify visual ink overlap. The existing paragraph
+regression cases remain unchanged. Semantic text, display-list design and general
+stacking/effect support stay deferred.
 
 Sources: [selected inspection](../../pagelayout/content/selected.go),
 [page/frame output](../../pagelayout/page.go),

@@ -1,9 +1,11 @@
 # Minimal traversal API and package placement
 
-**Status:** Planning proposal, 28 November 2026. Builds on the
+**Status:** Neutral `pagelayout/paint` API implemented, 28 November 2026;
+the typography bridge remains proposed. Builds on the
 [box traversal sketch](box_paint_traversal_sketch.md) and the implemented
 [SelectedBox API](selected_box_subtree_api_proposal.md), following
-[REMARKS.md](REMARKS.md). All declarations below are proposed, not implemented.
+[REMARKS.md](REMARKS.md). The neutral declarations below match the implementation;
+the separate `paint/typography` declarations remain a planning proposal.
 Paragraph painting retains the existing `khipu`/`typography` behavior. Semantic
 text and display-list design remain deferred.
 
@@ -11,8 +13,8 @@ text and display-list design remain deferred.
 
 | Package | Responsibility |
 | --- | --- |
-| `pagelayout/paint` — new | The fixed page/frame and box-phase traversal over selected snapshots; coordinate resolution; entry into selected atomic interiors. No typography dependency. |
-| `pagelayout/paint/typography` — new | Connect existing typed paragraph inspection and `FragmentResult` construction to that traversal; interleave glyph ranges and atomic interiors using existing anchors. |
+| `pagelayout/paint` — implemented | The fixed page/frame and box-phase traversal over selected snapshots; coordinate resolution; entry into selected atomic interiors. No typography dependency. |
+| `pagelayout/paint/typography` — proposed | Connect existing typed paragraph inspection and `FragmentResult` construction to that traversal; interleave glyph ranges and atomic interiors using existing anchors. |
 | `pagelayout/preparation/typography` — existing | Continue to supply preparation, fitting and typed frozen inspection. No new rendering dependency. |
 | `docrender` — existing | Backend drawing, PDF page/document lifecycle, and local font/resource pairing. |
 
@@ -30,7 +32,7 @@ consumer; pagination does not acquire a rendering dependency.
 
 ## Neutral box traversal
 
-The public surface can be two small argument types and one concrete function:
+The neutral public surface uses two argument types and one concrete function:
 
 ```go
 package paint // github.com/npillmayer/pagelayout/paint
@@ -89,7 +91,7 @@ wrapper over the same frozen backing, suitable for existing typed inspection.
 Changing that wrapper or copied records cannot retarget the walk's own selection.
 These arguments describe a call; they are not a new retained paragraph result.
 
-The function follows the spike's proposed attachment rules: selected source-root
+The function implements the spike's attachment rules: selected source-root
 paint remains on its own box, frame attachment does not recascade content, and no
 implicit frame clip is introduced. An empty frame still has a decoration call;
 zero-height or glyph-free selected material is not filtered away by the walker.
@@ -107,6 +109,10 @@ or call it concurrently. Each selected immediate atomic must be entered exactly
 once before the paragraph callback returns success. Unknown, unselected, duplicate
 or omitted children are errors. The bridge supplies anchor order; the neutral
 walker does not reinterpret horizontal ordering from `Children()` or coordinates.
+
+The implemented entry point also rejects reentry of a parent's capability while
+its atomic interior is executing. An entry failure stops traversal even when a
+paragraph callback ignores it; an expired capability cannot emit output.
 
 This narrow entry point keeps the box algorithm inside `paint`. The paragraph
 bridge decides only when the existing horizontal output reaches an atomic; it
@@ -199,8 +205,16 @@ Preserve the original cause and add the relevant page/frame/box/paragraph contex
 A traversal error does not roll back earlier output. Page creation, PDF finalization
 and any retry/discard policy stay with the caller and existing delivery handling.
 
-The existing selected-box API needs no additions for this proposal. The two new
-packages separate fixed box ordering from the typed paragraph join while leaving
+The neutral implementation exposes `ErrInvalidRequest`, `ErrAtomicEntry` and
+`*paint.Error`. The latter retains the page/frame, applicable box and paragraph
+occurrence, operation, and underlying cause. Public-page fixtures cover shared
+frame phases, continued boxes, nested/empty atomics, coordinate attachment,
+snapshot ownership, cancellation and callback/association failures. See the
+[usage guide](../../pagelayout/paint/README.md) and
+[tests](../../pagelayout/paint/paint_test.go).
+
+The existing selected-box API needed no additions. The implemented neutral
+package and proposed bridge separate fixed box ordering from the typed join, leaving
 the established immutable glyph result and relaxed paragraph rules intact.
 
 Sources: [selected inspection](../../pagelayout/content/selected.go),

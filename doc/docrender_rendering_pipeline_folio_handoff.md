@@ -58,7 +58,7 @@ the current practical scope and do not create new renderer requirements.
 | Pagination, selected occurrences and receiving frames | `pagelayout`. |
 | Shared retained glyph traversal | Implemented in `typography/render`, sharing placement and paint-mapping algorithms with outline proofs. |
 | Paragraph/page association and atomic child composition | Bridge between page output and rendering inputs. |
-| Supported CSS box/context paint traversal | Required algorithm managed by `pagelayout`; proposed placement in `pagelayout/paint` with a separate `paint/typography` bridge. Paragraph painting keeps its existing rules. |
+| Supported CSS box/context paint traversal | Neutral `pagelayout/paint` traversal implemented; separate `paint/typography` bridge remains proposed. Paragraph painting keeps its existing rules. |
 | Folio-specific fonts, resources, encoding and serialization | `docrender`. |
 | Diagnostic SVG and pipeline experiments | Existing proof consumers and `tytui/tycli`. |
 
@@ -119,17 +119,17 @@ be reopened to establish these box-level responsibilities.
 The [CSS paint-context trace](css_paint_context_trace.md) inventories what survives
 styling, normalization, fitting and template attachment. Private normalized trees
 and source ancestry survive; [selected subtree access](selected_box_subtree_api_proposal.md)
-is implemented, while receiver paint-context policy still needs a contract.
+and neutral frame/box traversal are implemented for the spike's restricted profile.
 The [box-subtree walkthrough](box_subtree_paint_walkthrough.md)
 illustrates the scope. Keep ordering logic independently testable from Folio and
 preserve the existing typography adapter dependency boundary.
 
-The [box traversal sketch](box_paint_traversal_sketch.md) proposes concrete rules
+The [box traversal sketch](box_paint_traversal_sketch.md) describes implemented rules
 for the spike: finish frames in catalog order, use shared decoration/content
 phases for their ordinary blocks, and enter inline-block interiors at existing
-paragraph anchors. It also proposes using the published composed CSS origins for
-placement. This remains a planning proposal without implementation or display-list
-decisions.
+paragraph anchors. It uses the published composed CSS origins for placement.
+Neutral tests cover frame attachment, continued boxes and nested atomic interiors;
+the typography join and display-list design remain separate.
 
 The [traversal API proposal](box_paint_traversal_api_proposal.md) sketches the
 package split and a concrete `WalkPage` entry point with synchronous decoration
@@ -212,9 +212,9 @@ the proof command's row placement is not a page paint algorithm.
 3. **Selected-box inspection implemented:** expose selected containers, paragraph
    groups and atomic interiors over existing snapshots. Establish page/atomic
    rendering bindings and their coordinate authority.
-4. Refine the proposed `pagelayout/paint` traversal and `paint/typography` bridge,
-   preserving existing paragraph painting. The API and package split remain
-   planning proposals.
+4. **Neutral traversal implemented:** `pagelayout/paint` applies frame attachment,
+   shared box phases and scoped atomic entry over selected snapshots. The
+   `paint/typography` bridge remains proposed, preserving existing paragraph painting.
 5. **First adapter implemented:** verify local Folio font pairing, glyph
    registration and exact positioned output; extend checks as integration grows.
 6. Compare the produced page geometry and drawing behavior with retained

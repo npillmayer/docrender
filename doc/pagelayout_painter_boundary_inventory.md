@@ -138,9 +138,10 @@ Neither path adds source margins or frame padding again.
 ## Paint and ordering
 
 CSS paint traversal is a required, encapsulated algorithm managed by `pagelayout`
-in the working direction from REMARKS. Its exact package placement and inputs
-remain planning work; it does not belong in `docrender` or need a pluggable policy
-interface. The initial accepted print profile may be narrower than the full set
+in the working direction from REMARKS. `pagelayout/paint` now implements the neutral
+frame/block phases and selected atomic entry over existing snapshots; its typed
+paragraph join remains proposed. It does not need a pluggable policy interface.
+The initial accepted print profile may be narrower than the full set
 of paint values admitted by upstream layout.
 
 The ordering contract concerns box subtrees and stacking contexts, with completed
@@ -150,11 +151,11 @@ paragraphs remains relaxed; the following gaps do not require new glyph metadata
 | Painter requirement | Current output | Status and boundary work |
 | --- | --- | --- |
 | Resolved solid colors | Template/content paint uses non-premultiplied `color.NRGBA`; text foreground uses processed-byte `TextPaintSpan` ranges. | **Available.** Preserve alpha and source styles. Text does not inherit receiving-frame styles. Color alpha is relevant even though CSS element opacity is outside the profile. |
-| Solid border geometry | Frame border widths and fragment used edges accompany per-side paint. None/hidden have zero effective width. | **Derivable.** The paint algorithm constructs supported border areas from these facts. Its exact package remains open; the first fixture need not exercise every border/alpha case. |
-| Deterministic box/context order | Frames and branch fragments have published order; `SelectedBox.Children()` exposes selected structural order; geometry has coordinate parents. | **Contract gap.** Define supported decoration/content phases and receiver contexts using the selected view. Preserve existing paragraph painting. Structural and coordinate parentage do not supply context hierarchy. |
+| Solid border geometry | Frame border widths and fragment used edges accompany per-side paint. None/hidden have zero effective width. | **Derivable.** Neutral traversal supplies page-local border rectangles and effective edges. The proposed PDF decoration adapter constructs supported border areas; border/alpha coverage stays local to the consumer. |
+| Deterministic box/context order | Frames and branch fragments have published order; `SelectedBox.Children()` exposes selected structural order; geometry has coordinate parents. | **Implemented for the spike.** `paint.WalkPage` applies frame scopes, shared ordinary-block decoration/content phases and scoped atomic entry. Existing paragraph playback remains authoritative; broader contexts stay deferred. |
 | Selected inline box subtrees | Physical frozen traversal locates atomics; occurrence IDs and `ParentAtomic` connect their interiors. | **Composition boundary.** Reuse horizontal traversal and placement, qualify IDs by selected parent paragraph, and include each selected child's decoration and output once. No additional glyph-level CSS ordering is required. |
 | Source ancestry without recascade | Qualified boxes retain source identity/context; the retained `content.Document` exposes `NodeSource`. | **Available source facts; incomplete paint traversal.** Original ancestry is distinct from fragment/receiver placement. Source inspection does not authorize restyling or rebuilding layout. |
-| Frame clipping and overflow | Frame rectangles and allocation bounds exist; no resolved clip payload is published. Authored clipping/overflow effects are outside the current profile. | **Outside profile / explicit policy needed.** Flowing into a frame alone does not request clipping. Do not crop glyph overhang to allocation bounds by default. |
+| Frame clipping and overflow | Frame rectangles and allocation bounds exist; no resolved clip payload is published. Authored clipping/overflow effects are outside the current profile. | **No implicit clip.** `paint.WalkPage` adds no clipping at attachment. Drawing consumers must preserve glyph overhang rather than crop it to allocation bounds by default. |
 | Transforms, stacking levels, group opacity and blending | Current source/template profiles do not publish these effects. | **Outside profile / deferred.** These do not drive the spike's retained result or paint-order inputs. Broader support would need its own resolved input contract. |
 | Images, rich backgrounds, text decoration, outlines, rounded borders and generated content | No corresponding render payloads in the supported bridge. | **Outside profile / deferred.** These are not prerequisites. Do not manufacture image/resource handling from an inline atomic; current atomics are laid-out inline-blocks. |
 
@@ -327,12 +328,10 @@ The next planning steps should resolve the following in order:
    transient and semantic text deferred; page consumers still need integration.
 3. **Resolve occurrence and atomic bindings.** Specify the selected child joins,
    precision and one authoritative transform path.
-4. **Encapsulate supported box/context traversal.** Use the
-   [selected-box access](selected_box_subtree_api_proposal.md) and
-   [context trace](css_paint_context_trace.md) to define
-   decoration/content phases and frame paint scopes. Preserve existing horizontal
-   painting; strict inline ordering is not a new requirement.
-   `pagelayout` manages this required stage; exact package placement remains open.
+4. **Neutral box/context traversal implemented.** `pagelayout/paint` consumes
+   [selected-box access](selected_box_subtree_api_proposal.md) for frame scopes,
+   shared decoration/content phases and atomic interiors. The typed paragraph
+   join remains proposed; strict inline ordering is not a new requirement.
 5. **Backend font pairing implemented first.** Docrender connects the same
    immutable font program to its upstream and Folio representations. Glyph-only
    registration, resource lifetime and exact placement are tested against
