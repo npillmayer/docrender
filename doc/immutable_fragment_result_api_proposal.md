@@ -12,8 +12,8 @@ paragraph text, replacement strings or semantic cluster model.
 
 The [ownership sketch](immutable_fragment_result_sketch.md) explains lifetime;
 the [walkthrough](immutable_fragment_result_walkthrough.md) checks RTL, ligatures,
-soft hyphens and atomics. Page paint traversal is a separate algorithm whose
-module ownership remains open.
+soft hyphens and atomics. Page paint traversal is a required separate algorithm
+to be managed by `pagelayout`; its exact package placement remains open.
 
 ## Construction and paint input
 
@@ -242,9 +242,13 @@ Precision and the choice between local-anchor composition and already-composed
 page origins remain bridge contracts. Neither child data nor transform policy
 enters `FragmentResult`.
 
-CSS paint traversal is an independent algorithm over resolved page/box/text
-facts. Its module owner is open. Local glyph/anchor traversal does not settle
-normal-flow paint order, stacking, or a display-list design.
+CSS box/context paint traversal is a required algorithm managed by `pagelayout`.
+The [context trace](css_paint_context_trace.md) identifies selected subtree access
+and receiver attachment as the remaining structural boundaries. Paragraphs retain
+their existing horizontal traversal, glyph positions and resolved colors under
+the agreed relaxed painting rules. No additional glyph-level CSS association or
+construction handshake is required. Exact package and display-list choices remain
+open.
 
 Only `docrender` pairs retained font instances/resources with Folio's private
 font representation. Parsing the same immutable binary separately for Folio is

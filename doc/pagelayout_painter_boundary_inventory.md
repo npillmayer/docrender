@@ -1,9 +1,10 @@
 # Painter boundary inventory for pagelayout
 
 **Status:** Planning inventory for the two-page PDF spike, 28 November 2026.
-[REMARKS.md](REMARKS.md) governs scope. The typography fragment result and bottom
-PDF adapter are implemented; page integration, paint traversal ownership and
-display-list representation remain open.
+[REMARKS.md](REMARKS.md) governs scope. The typography fragment result, bottom
+PDF adapter and selected-box inspection are implemented; page integration and
+display-list representation remain open. `pagelayout` is the working owner of required CSS paint ordering;
+its exact package placement remains to be planned.
 
 `pagelayout` publishes enough frozen geometry, shaped text and source paint to
 start a rendering integration for a deliberately bounded profile. Its output is
@@ -13,11 +14,25 @@ those facts from the paint traversal that will consume them.
 The first planning task is to account for the information a painter needs before
 deciding whether an additional representation is necessary.
 
-The immediate boundaries are supported normal-flow paint ordering, selected
-occurrence/atomic composition, shared glyph traversal and backend font pairing.
-Ordinary inline backgrounds can be excluded from the first fixture while their
-geometry contract is unresolved. Semantic text recovery is deferred. These
-concerns should not be treated as one missing page-tree API.
+The immediate boundaries are box/context paint ordering, selected subtree and
+atomic composition, shared glyph traversal and backend font pairing. Paragraphs
+keep their existing horizontal painting rules, settled glyph positions and
+resolved colors. No new logical glyph order or source-element-to-glyph CSS
+association is required. Ordinary inline backgrounds and semantic text recovery
+remain outside the simple painting target.
+
+The [CSS paint-context trace](css_paint_context_trace.md) follows source styling,
+normalization, fitting and template attachment in detail. It distinguishes facts
+already retained privately from the selected subtree access now available and
+receiver policy still needed for painting.
+The [paint-context data sketch](paint_context_data_sketch.md) narrows the proposed
+retention boundary to selected box subtrees, supported context relationships and
+contained paragraph output. The [box-subtree walkthrough](box_subtree_paint_walkthrough.md)
+gives practical examples.
+
+The [selected-box Go API](selected_box_subtree_api_proposal.md) provides
+read-only access to selected containers, paragraph groups and inline child subtrees
+using existing fragment records.
 
 ## Scope and status terms
 
@@ -50,7 +65,7 @@ selected Sequence.Shipout
     → PageConsumer receives *Page
         → Page.Info and Page.Frames
             → PageFrame.Frame and PageFrame.Fragments
-                → content.FitFragment geometry, used values and containers
+                → content.FitFragment selected boxes, geometry, used values and containers
                 → preparation/typography.InspectFragment
                     → paragraph occurrences, input paint and source coverage
                     → typography/layout.Fragment
@@ -85,12 +100,12 @@ Sources: [page output](../../pagelayout/page.go),
 | Placement of a paragraph occurrence | `FitParagraph.X/Y`, exposed as `FragmentGroup.X/Y`, are relative to the receiving content origin. | **Available.** They already include branch composition and owning-box placement. Add the frame content origin once. |
 | Container placement | `Geometry()` and `FitContainer.Geometry` supply `Frame`, `Content` and `RelativeTo`. | **Derivable.** Follow parent content origins within this fragment/tree, then add the receiver origin. Do not use one global map keyed by bare BoxID. |
 | Fragment-specific edges | `Containers()` carries `First`, `Last`, resolved `Edges` and source `Paint`; `UsedValues()` carries resolved widths/edges. | **Available.** Continuing containers omit top edges; nonlast containers omit bottom edges. Use published widths rather than recomputing from `BoxInfo.Constraints`. This is the current fragmentation policy, not general `box-decoration-break` support. |
-| Backgrounds and borders of consumed atomic interiors | `Geometry()` and `UsedValues()` retain consumed atomic subtrees; `Box.Info().Paint` supplies their source paint. | **Available, traversal needed.** `Containers()` is not an exhaustive list of these boxes. Include retained interior blocks as well as inline-block roots, with each box painted once. |
+| Backgrounds and borders of consumed atomic interiors | `SelectedBox.Container()` combines retained geometry, used edges and source paint for all selected containers. | **Available, painting needed.** This includes consumed interior blocks and inline-block roots absent from `Containers()`, with complete edges. Paint each selected occurrence once. |
 | Paragraph lines and baselines | `typography/layout.Fragment.Lines()` publishes local top, height, baseline, original line index and frozen horizontal line. | **Available.** Use retained baselines and full line heights; do not restack lines or infer baselines from font metrics. Render only the fragment's line range. |
 | Inline atomic placement | `GroupInput.Occurrences`, `ParentAtomic`, `Fragment.AtomicPlacements()` and `FrozenKhipu.Atomic(knot)` connect marker IDs to retained boxes and physical placements. | **Derivable.** Atomic interiors are separate paragraph occurrences whose receiver-relative origins are already resolved. Their local atomic placement must not be added a second time. |
 | Precision of atomic interior origins | Typography retains local atomic placements in `float64` big points; the pagelayout adapter converts placements to CSS `float32`, and published group origins also use CSS `float32`. | **Contract gap for precision guarantees.** Tytui demonstrates retaining precise atomic border origins while translating interior geometry. Determine the required precision and authoritative transform path for pagelayout output before adopting that technique; do not combine it additively with the already-resolved group origin. |
 | Occupied extent versus ink bounds | `PageFrame.Extent()` measures allocated space; the existing proof's bounds also include outline control points. | **Available but distinct.** Neither allocation extent nor conservative proof bounds is a clipping instruction or a tight glyph-ink bound. |
-| Ordinary inline background rectangles | Inline source paint is retained; `GroupInput.Paint` supplies only text foreground. Frozen lines have no per-inline-box background fragments. | **Contract gap.** Solid backgrounds can be accepted on ordinary inline elements, but the published output does not directly supply their per-line extents. Decide how that geometry is owned/published, or explicitly bound the first renderer's accepted input. Do not approximate it with glyph ink bounds. |
+| Ordinary inline background rectangles | Inline source paint is retained; `GroupInput.Paint` supplies only text foreground. Frozen lines have no per-inline-box background fragments. | **Deferred for the painting target.** Upstream admission is broader than the simple spike fixture. Per-inline geometry is not a prerequisite; state the fixture's supported paint rather than approximate backgrounds by glyph ink bounds. |
 
 Sources: [neutral fragments](../../pagelayout/content/fit.go),
 [frame composition](../../pagelayout/content/compose.go),
@@ -122,20 +137,25 @@ Neither path adds source margins or frame padding again.
 
 ## Paint and ordering
 
-CSS paint traversal is an explicitly encapsulated algorithm; its module owner
-is not selected. The tables describe facts and responsibilities, not an assignment
-to a particular painter package. The initial accepted print profile may be
-narrower than the full set of paint values admitted by upstream layout.
+CSS paint traversal is a required, encapsulated algorithm managed by `pagelayout`
+in the working direction from REMARKS. Its exact package placement and inputs
+remain planning work; it does not belong in `docrender` or need a pluggable policy
+interface. The initial accepted print profile may be narrower than the full set
+of paint values admitted by upstream layout.
+
+The ordering contract concerns box subtrees and stacking contexts, with completed
+paragraph output as the horizontal painting authority. Strict CSS ordering within
+paragraphs remains relaxed; the following gaps do not require new glyph metadata.
 
 | Painter requirement | Current output | Status and boundary work |
 | --- | --- | --- |
 | Resolved solid colors | Template/content paint uses non-premultiplied `color.NRGBA`; text foreground uses processed-byte `TextPaintSpan` ranges. | **Available.** Preserve alpha and source styles. Text does not inherit receiving-frame styles. Color alpha is relevant even though CSS element opacity is outside the profile. |
-| Solid border geometry | Frame border widths and fragment used edges accompany per-side paint. None/hidden have zero effective width. | **Derivable.** The paint algorithm constructs supported border areas from these facts. Its module remains open; the first fixture need not exercise every border/alpha case. |
-| Deterministic paint order | Frames and branch fragments have published order; paragraphs have occurrence order; geometry has coordinate parents. | **Contract gap.** These are not a complete interleaved paint traversal. Establish the supported ordering of block backgrounds, inline text, atomics and their interiors, including overlap from signed margins or glyph overhang. Never use Go map iteration or numeric BoxID sorting as paint order. |
-| Atomic placement among surrounding text | Physical frozen knot order identifies each atomic marker; occurrence IDs and `ParentAtomic` connect interiors. | **Derivable with an ordering contract.** The information is richer than a flat list of all paragraph groups. Painting all groups consecutively does not by itself establish the correct atomic/background interleaving. |
+| Solid border geometry | Frame border widths and fragment used edges accompany per-side paint. None/hidden have zero effective width. | **Derivable.** The paint algorithm constructs supported border areas from these facts. Its exact package remains open; the first fixture need not exercise every border/alpha case. |
+| Deterministic box/context order | Frames and branch fragments have published order; `SelectedBox.Children()` exposes selected structural order; geometry has coordinate parents. | **Contract gap.** Define supported decoration/content phases and receiver contexts using the selected view. Preserve existing paragraph painting. Structural and coordinate parentage do not supply context hierarchy. |
+| Selected inline box subtrees | Physical frozen traversal locates atomics; occurrence IDs and `ParentAtomic` connect their interiors. | **Composition boundary.** Reuse horizontal traversal and placement, qualify IDs by selected parent paragraph, and include each selected child's decoration and output once. No additional glyph-level CSS ordering is required. |
 | Source ancestry without recascade | Qualified boxes retain source identity/context; the retained `content.Document` exposes `NodeSource`. | **Available source facts; incomplete paint traversal.** Original ancestry is distinct from fragment/receiver placement. Source inspection does not authorize restyling or rebuilding layout. |
 | Frame clipping and overflow | Frame rectangles and allocation bounds exist; no resolved clip payload is published. Authored clipping/overflow effects are outside the current profile. | **Outside profile / explicit policy needed.** Flowing into a frame alone does not request clipping. Do not crop glyph overhang to allocation bounds by default. |
-| Transforms, stacking levels, group opacity and blending | Current source/template profiles do not publish these effects. | **Outside profile / deferred.** These do not drive the spike's retained result or traversal interface. Broader support would need its own resolved input contract. |
+| Transforms, stacking levels, group opacity and blending | Current source/template profiles do not publish these effects. | **Outside profile / deferred.** These do not drive the spike's retained result or paint-order inputs. Broader support would need its own resolved input contract. |
 | Images, rich backgrounds, text decoration, outlines, rounded borders and generated content | No corresponding render payloads in the supported bridge. | **Outside profile / deferred.** These are not prerequisites. Do not manufacture image/resource handling from an inline atomic; current atomics are laid-out inline-blocks. |
 
 The current normal-flow profile reduces the ordering problem but does not prove
@@ -160,9 +180,9 @@ rendering. The spike publishes positioned glyphs with resolved color.
 | --- | --- | --- |
 | Exact selected glyphs and font instances | `Fragment.Frozen().CopyText(knot)` returns copied glyphs, clusters, shaping context, font instance and replacement facts. | **Available.** GIDs are `uint32`, meaningful only with the retained face. Any backend using narrower codes must validate before conversion. |
 | Final glyph origins | Frozen lines supply side skips; knots supply final widths; shaped glyphs supply signed font-unit advances/offsets and retained scale. | **Derivable.** Traverse physical knots, advance through glue/fill/atomics, order detached directional glyph fragments once, then apply offsets and scale. This replays settled placement; it performs no new line layout. |
-| Bidi visual order | Frozen knots are physical left-to-right; `FrozenText.Glyphs` retain logical shaping order and direction. `render.Backend.VisualOrder` supplies the existing conversion. | **Available service, integration boundary open.** Preserve construction-time glyph associations; do not reorder lines/knots again or sort by X. Direction and logical source order need not be retained in the drawing result. |
+| Bidi visual order | Frozen knots are physical left-to-right; `FrozenText.Glyphs` retain logical shaping order and direction. `render.GlyphOrderer.VisualPermutation` supplies the construction-time conversion. | **Available.** Preserve existing construction and replay behavior; do not reorder lines/knots again or sort by X. No retained direction, logical source order or additional CSS glyph association is required. |
 | Foreground selection across clusters | `GroupInput.Paint`, retained anchors and `render.PaintSources` associate glyphs with processed text paint. | **Derivable within current mapping support.** Resolve colors while source/replacement facts are available, then retain colors only. Uniform default paint needs no source mapping. |
-| Glyph traversal without outlines | `render.BuildFragmentProof` already computes origins, paint and order; `tytui/tycli` exercises it through documentlayout's frame proofs. It also obtains outlines and returns path-oriented proof glyphs. | **Contract gap at the output boundary.** Share the existing placement algorithm and publish exact fonts, positions, colors and atomic anchors without paths or semantic spans. |
+| Glyph traversal without outlines | `render.BuildFragmentResult` shares retained placement and paint mapping with outline proofs, retaining exact fonts, positions, colors and atomic anchors. | **Available.** `pdf.Page.PaintFragmentGlyphs` consumes explicit result-local glyph ranges. Selected page and child-subtree composition remain bridge work; glyph-level CSS associations are not required. |
 | Source coverage for ordinary text | `FrozenCluster`, `FrozenKnot.Source`, `FragmentGroup.Coverage` and `Input.TextSources` connect shaping, processed bytes and decoded source ranges. | **Available upstream / deferred as rendering semantics.** Keep existing pagination ownership checks. Use byte/scalar facts temporarily where paint requires them; do not export a new semantic cluster model. |
 | Original decoded source strings | `Input.Text` retains processed group text. `content.Document.TextSource` exposes decoded original node strings; a page/box has no equivalent public lookup. | **Deferred.** The spike needs no new frozen-page semantic-text capability or extraction policy. |
 | Manual replacements and silent material | Frozen records retain generated spelling, local clusters and original source partitions; endpoints track consumption. | **Available for drawing / semantics deferred.** Replay the selected glyphs and final advances. Needed nonuniform paint uses the supported replacement mapping; no retained spelling or consumption model is required in renderer output. |
@@ -307,9 +327,12 @@ The next planning steps should resolve the following in order:
    transient and semantic text deferred; page consumers still need integration.
 3. **Resolve occurrence and atomic bindings.** Specify the selected child joins,
    precision and one authoritative transform path.
-4. **Encapsulate supported paint traversal.** Trace an interleaved page, including
-   relevant overlap cases. Define the algorithm's inputs and invariants while
-   leaving module ownership open.
+4. **Encapsulate supported box/context traversal.** Use the
+   [selected-box access](selected_box_subtree_api_proposal.md) and
+   [context trace](css_paint_context_trace.md) to define
+   decoration/content phases and frame paint scopes. Preserve existing horizontal
+   painting; strict inline ordering is not a new requirement.
+   `pagelayout` manages this required stage; exact package placement remains open.
 5. **Backend font pairing implemented first.** Docrender connects the same
    immutable font program to its upstream and Folio representations. Glyph-only
    registration, resource lifetime and exact placement are tested against

@@ -4,7 +4,8 @@
 28 November 2026.
 [REMARKS.md](REMARKS.md) governs scope. The working public boundary is a complete
 immutable result per selected typography paragraph fragment. Semantic text is
-deferred; CSS paint traversal ownership and display-list structure are open.
+deferred. Required CSS paint ordering is to be managed by `pagelayout`; its exact
+package placement and display-list structure remain open.
 
 The reusable work belongs near the existing `typography/render` traversal:
 select retained lines, walk physical knots, order detached text pieces, accumulate
@@ -39,14 +40,15 @@ Sources: [paragraph traversal](../../typography/render/paragraph.go),
 | Reusable selected glyph traversal and temporary paint-source mapping | Implemented in `typography/render`, shared with outline proofs. |
 | Source paint projection | Caller/integration supplies resolved foreground spans, separately from shaping styles. |
 | Page/paragraph occurrence binding and atomic child geometry | Page bridge; compose selected geometry once. |
-| CSS paint traversal | Separate algorithm; module ownership remains open. |
+| CSS paint traversal | Required algorithm managed by `pagelayout`; exact package placement remains open. |
 | Outline proof construction | SVG/proof consumer, using retained fonts and positions. |
 | Folio font pairing, resource registration and PDF serialization | `docrender`, isolated from upstream modules. |
 | Experiments and visible demos | `tytui`, especially `tycli`; not a compatibility requirement. |
 
-This distinguishes two traversals. Glyph traversal replays completed typography.
-Page paint traversal determines the interleaving of supported box paint, text and
-atomic interiors. Sharing the first does not assign or implement the second.
+Glyph traversal replays completed typography under the agreed relaxed paragraph
+painting rules. Page paint traversal orders box decoration, contained paragraph
+output and selected child subtrees within the supported contexts. It introduces
+no source-element-to-glyph CSS association or second horizontal ordering pass.
 
 ## A smaller retained boundary
 
@@ -61,10 +63,9 @@ association between glyphs, fonts and colors while ordering. Identical GIDs or
 anchors cannot establish identity. Knots are already physical; never sort them,
 glyphs or atomics by X.
 
-Temporary cluster intervals refer to the original logical glyph snapshot. If
-needed for validation or paint association, translate them through the ordering
-association. They do not become a public semantic result or a new source
-coverage requirement.
+Temporary source/cluster facts support the existing foreground mapping. They do
+not become a public semantic result, CSS scope ownership or a new source coverage
+requirement.
 
 For nonuniform foreground, reuse the existing ordinary-text and explicit
 soft-hyphen paint mapping. Keep byte and scalar domains distinct and report
@@ -108,10 +109,12 @@ local-anchor composition with content-edge offsets. Pagelayout also publishes
 already-resolved origins through CSS float32 coordinates. A bridge contract must
 choose an authoritative path and precision; the result does not settle it.
 
-The CSS paint algorithm must separately specify normal-flow ordering for the
-accepted print profile. Its inputs, outputs and invariants should be described
-before choosing a module home. A flat pass over all paragraph groups, a BoxID
-sort, and the diagnostic SVG box loops do not establish that contract.
+The required box/context algorithm managed by `pagelayout` specifies supported
+decoration/content phases and receiver attachment. Its exact package remains
+open. Reuse horizontal traversal and selected atomic placement; the remaining
+subtree work is to include each child's decoration and contained output once.
+Numeric BoxID sorting and a flat pass over all paragraph groups do not supply
+that structure.
 
 Sources: [tytui fragment composition](../../tytui/documentlayout/proof_fragment.go),
 [child composition](../../tytui/documentlayout/proof_fragment_boxes.go),
@@ -156,7 +159,8 @@ Remaining integration work:
 1. A simple two-page print input and its accepted foreground/box paint.
 2. Consume the implemented detached glyph/color/anchor result at the page bridge.
 3. Page occurrence joins and an explicit atomic transform contract.
-4. An encapsulated supported paint-order algorithm, with module ownership open.
+4. A required paint-order algorithm managed by `pagelayout`, with selected
+   structural facts and frame policies from the [context trace](css_paint_context_trace.md).
 5. Extend the implemented `pdf.Page.PaintFragmentGlyphs` connection to
    selected page occurrences, using identical font bytes and authoritative
    glyph placement. Local range submission is already tested.

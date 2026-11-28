@@ -115,9 +115,12 @@ choose one authoritative transform path. Current pagelayout CSS float32
 composition and precise local float64 anchors require an explicit precision
 contract; adding both origins is not valid.
 
-CSS paint traversal remains a separately encapsulated algorithm with open module
-ownership. Neither this result's atomic order nor its line/glyph tables assigns
-that algorithm to typography or `docrender`, or decides display-list structure.
+CSS box/context paint traversal is a required, separately encapsulated algorithm
+managed by `pagelayout`, with exact package placement still open. Its
+[structural inputs](css_paint_context_trace.md) concern selected subtrees,
+decoration and receiver attachment. Paragraphs retain existing horizontal painting;
+no new glyph-level CSS ordering metadata is required. Display-list choices remain
+open.
 
 Sources: [fragment geometry](../../typography/layout/fragment.go),
 [atomic composition experiment](../../tytui/documentlayout/proof_fragment_boxes.go),

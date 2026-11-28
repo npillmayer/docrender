@@ -8,6 +8,11 @@ coverage in [fragment-result tests](../../typography/integration/fragment_result
 including real fonts, source-dependent paint, atomic anchors and ownership.
 It does not select a display-list design.
 
+The separate [box-subtree walkthrough](box_subtree_paint_walkthrough.md) concerns
+decoration, stacking contexts and contained paragraph output. The examples here
+document existing typography behavior under the relaxed paragraph painting rules;
+they add no glyph-level CSS association requirements.
+
 The result retains final glyph positions, fonts/colors, logical lines and atomic
 anchors. Source strings, replacement spellings, direction, logical ordinals and
 cluster mappings are temporary construction data. Semantic PDF output is deferred.
@@ -126,8 +131,10 @@ text rather than becoming a box.
 The bridge qualifies ID 1 by paragraph occurrence, joins matching selected child
 geometry, and composes the interior once. Its border/content offsets and choice
 of precise local-anchor versus already-composed page origin stay outside the
-result. The encapsulated paint-order algorithm decides how this occurrence
-interleaves with supported box/text painting; its module ownership is open.
+result. Reuse the existing horizontal traversal to reach the selected child
+subtree, including its decoration and contained output once. `pagelayout` manages
+the supported box/context ordering algorithm; exact package and selected subtree
+access remain open. No new logical ordering of paragraph glyphs is required.
 
 Evidence: [atomic layout](../../typography/glyphing/paragraph/atomic.go),
 [precise composition](../../tytui/documentlayout/proof_fragment_boxes.go),
@@ -139,7 +146,7 @@ Evidence: [atomic layout](../../typography/glyphing/paragraph/atomic.go),
 | --- | --- |
 | Resolved foreground input | Adapt page caller paint spans to the implemented simple color input; keep source mapping transient and shared. |
 | Page/atomic geometry | Bind exact selected occurrences and choose one transform/precision policy. |
-| CSS paint traversal | Define the supported ordering algorithm and its required inputs before choosing its module. |
+| CSS box/context traversal | Define the required stage managed by `pagelayout`, using the [context trace](css_paint_context_trace.md), while preserving existing paragraph painting; exact package placement remains open. |
 | PDF fonts | Retained glyph ranges now connect to `docrender/pdf` font pairing and explicit placement. Extend page-level evidence after occurrence composition is defined. |
 | Deferred semantics | No new public cluster/source retention or extraction requirement. Existing upstream source ownership remains intact. |
 

@@ -30,7 +30,7 @@ by the first implementation.
 | Selected GIDs and shaped advances/offsets | User-chosen shaper through the existing typesetter. |
 | Final line/knot spacing, baselines and glyph/atomic origins | Layout and shared retained rendering traversal. |
 | Resolved foreground and supported box paint | Rendering inputs and the separate paint algorithm. |
-| CSS paint traversal | Encapsulated algorithm; module ownership open. |
+| CSS box/context paint traversal | Required algorithm managed by `pagelayout`; preserve relaxed paragraph painting. Exact package placement remains open. |
 | Pairing a retained font with its exact binary and Folio model | `docrender`. |
 | PDF resource names, used-glyph sets, encoding/subsetting state | `docrender` backend integration and Folio. |
 | Serialization and output finalization | PDF backend. |
@@ -203,4 +203,11 @@ See the [pipeline handoff](docrender_rendering_pipeline_folio_handoff.md),
 [fragment API](immutable_fragment_result_api_proposal.md) and
 [page boundary inventory](pagelayout_painter_boundary_inventory.md) for the
 other responsibilities. Selected page composition remains a planning boundary;
-the completed connector does not decide CSS traversal ownership or a display list.
+the completed connector supplies neither the CSS ordering algorithm managed by
+`pagelayout` nor a display-list design. The
+[context trace](css_paint_context_trace.md) records the upstream retention work.
+
+That work concerns selected box subtrees, decoration and supported context rules.
+Paragraphs retain their existing horizontal traversal and resolved paint. No
+glyph-level CSS ownership or source-element association is required by the PDF
+connector or its existing range-submission API.
