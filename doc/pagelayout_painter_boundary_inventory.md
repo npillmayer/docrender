@@ -22,8 +22,9 @@ concerns should not be treated as one missing page-tree API.
 
 This inventory describes the current sibling checkouts. It preserves the
 handoff's separation of layout, painting and backend serialization. The existing
-[Folio brief](folio_pdf_backend_integration_brief.md) remains a backend proposal;
-its external API assumptions still require verification against a pinned version.
+[Folio brief](folio_pdf_backend_integration_brief.md) now records the pinned
+v0.11.0 audit and first `docrender/pdf` adapter. The page/fragment bridge remains
+unimplemented; the backend proof uses fixed rows supplied by its caller.
 
 The tables distinguish available facts, required boundary work and deferred work:
 
@@ -244,9 +245,9 @@ Sources: [tycli entry point](../../tytui/tycli/main.go),
 | Sized face and scale | `contracts.FontInstance` exposes `Face`, `EmSize` and retained `Scale`. | **Available.** It binds size only; it does not describe variations or synthetic styling. |
 | Exact retained font bytes and identity | Optional `font.ResourceFace` exposes immutable `fontresource.Resource` and metadata; `Resource.Open` reads retained bytes. The current OpenType face implements it. | **Available for compatible faces.** Generic `FontFace` does not promise this capability. Validate it or require an injected resource service; never reopen a source path during replay. |
 | Resource identity versus content identity | `Resource.ID()` includes provenance; `SHA256()` identifies bytes. | **Available; cache policy open.** Keep their meanings distinct. A proof's `FaceSHA256` alone is not a complete resource/instance handoff. |
-| Embedding descriptors and nominal glyph widths | Generic `FontFace` supplies basic vertical metrics and scale; parsed internals stay private. | **Backend integration work in docrender.** Let the local Folio font representation supply its required data from the same binary. Do not add Folio requirements upstream or use nominal widths to change placement. |
+| Embedding descriptors and nominal glyph widths | Generic `FontFace` supplies basic vertical metrics and scale; parsed internals stay private. | **Implemented for the initial static TrueType profile in docrender.** The local Folio model supplies embedding data from retained bytes, with descriptor unit adaptation. No Folio requirements enter upstream contracts or change glyph placement. |
 | Separate backend font parse | Retained immutable bytes are available for compatible faces. | **Accepted approach.** Docrender may let Folio parse the same program separately and owns the association with the upstream instance. Avoiding a second parse is not a prerequisite. |
-| PDF resource registration and document cache | No PDF resource names or mutable embedding registries occur in page output. | **Backend verification required.** Check glyph-only registration/encoding against a pinned Folio version locally in docrender, without introducing source-text retention upstream. |
+| PDF resource registration and document cache | No PDF resource names or mutable embedding registries occur in page output. | **Implemented locally against Folio v0.11.0.** The adapter registers exact GIDs, shares program resources across pages/sizes and emits absolute origins without source text. Joining actual page output is still bridge work. |
 
 Sources: [font contracts](../../khipu/contracts/font_api.go),
 [font instances](../../khipu/contracts/font_instance.go),
@@ -307,9 +308,10 @@ The next planning steps should resolve the following in order:
 4. **Encapsulate supported paint traversal.** Trace an interleaved page, including
    relevant overlap cases. Define the algorithm's inputs and invariants while
    leaving module ownership open.
-5. **Verify backend font pairing.** Let docrender connect the same immutable
-   font program to its upstream and Folio representations. Check glyph-only
-   registration, resource lifetime and exact placement against a pinned version.
+5. **Backend font pairing implemented first.** Docrender connects the same
+   immutable font program to its upstream and Folio representations. Glyph-only
+   registration, resource lifetime and exact placement are tested against
+   v0.11.0; page/fragment integration remains pending.
 
 After those contracts are understood, a small rendering experiment can test
 coordinates, occurrence conservation, paint order, resolved colors and resource

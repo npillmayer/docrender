@@ -2,8 +2,9 @@
 
 **Status:** Planning handoff, revised 28 November 2026 under
 [REMARKS.md](REMARKS.md). The target is a straightforward two-page PDF with
-simple paint. No implementation, finalized package layout or display-list design
-is selected.
+simple paint. The bottom Folio adapter is now implemented in
+[`docrender/pdf`](../pdf); the upper boundaries remain proposals. A finalized
+pipeline package layout and display-list design are still open.
 
 ## Objective
 
@@ -143,10 +144,11 @@ They neither replace chosen glyphs nor determine a new pen trajectory.
 The backend must reproduce the authoritative final origins; explicit glyph
 placement is sufficient for the first experiment.
 
-Pin and verify the backend before implementation. In particular, establish
-glyph-only registration/encoding and resource publication without making
-original Unicode strings a new upstream requirement. Backend-specific resource
-names and mutable caches do not enter generic results.
+The [pinned backend audit](folio_pdf_backend_integration_brief.md#pinned-backend-audit-and-local-adaptation)
+and first adapter establish glyph-only registration, resource publication and
+explicit positioned output against Folio v0.11.0. They introduce no original
+Unicode strings into the backend boundary. Backend-specific resource names and
+mutable caches do not enter generic results.
 
 ## Deferred semantic text
 
@@ -161,13 +163,18 @@ from GIDs. Later semantic output needs an explicit, separately scoped contract.
 
 ## Planning sequence and evidence
 
+Implementation proceeds bottom up: step 5 below has a working adapter and fixed
+two-page proof. The other steps still require their own design and integration;
+the proof command's row placement is not a shared traversal implementation.
+
 1. Choose a simple two-page fixture and document its supported print paint.
 2. Finalize the small shared glyph-result boundary and construction-time color
    resolution, preserving borrowed-font lifetime.
 3. Establish selected page/atomic bindings and their coordinate authority.
 4. Describe and test the supported paint-order algorithm; choose its module only
    after its dependencies are understood.
-5. Verify local Folio font pairing, glyph registration and exact positioned output.
+5. **First adapter implemented:** verify local Folio font pairing, glyph
+   registration and exact positioned output; extend checks as integration grows.
 6. Compare the produced page geometry and drawing behavior with retained
    typography/proof evidence, without requiring semantic PDF extraction.
 

@@ -35,3 +35,6 @@ go.work.sum
 # .vscode/
 
 AGENTS.md
+
+# Generated backend proof artifacts
+/output/

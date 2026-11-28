@@ -1,9 +1,9 @@
 # Folio PDF backend boundary for the two-page spike
 
-**Status:** Planning brief, revised 28 November 2026 under
-[REMARKS.md](REMARKS.md). Folio is a candidate serialization/font backend;
-implementation requires a pinned version and verification of its actual APIs.
-This brief selects no display-list design.
+**Status:** Boundary brief and first implementation audit, 28 November 2026,
+under [REMARKS.md](REMARKS.md). The bottom adapter is implemented in
+[`docrender/pdf`](../pdf) against **Folio v0.11.0**. The fragment/page bridge and
+CSS paint traversal remain planning work. No display-list design is selected.
 
 ## Integration direction
 
@@ -19,8 +19,8 @@ could be an optimization if convenient, but a single parse is not a goal that
 justifies exposing parser internals or adding Folio-specific methods upstream.
 
 This supersedes the earlier mandatory `font.Face` adapter/no-reparse approach
-and semantic-text requirements. No particular Folio method signature is assumed
-to be current.
+and semantic-text requirements. The audit below records the pinned APIs used
+by the first implementation.
 
 ## Ownership
 
@@ -42,13 +42,16 @@ CSS trees, choose paint order, infer document styles or perform text layout.
 At setup or first backend resource use, `docrender` must establish that the
 Folio model corresponds to the exact font program used for the retained GIDs.
 Use the same immutable binary, with any relevant face selection kept consistent.
-Use explicit supported static-font fixtures for the initial experiment.
+The implemented profile accepts a single static SFNT face with monochrome
+TrueType `glyf`/`loca` outlines. CFF, collections, variable/color fonts and font
+containers are rejected. Gentium Plus and Noto Sans Hebrew are the proof fixtures.
 
 The existing typography resource capability can provide retained bytes for
 compatible faces. For a foreign face, an explicit caller-supplied association
 may be required. Generic `FontFace` does not guarantee embedding support.
 A missing association is a backend error, not permission to rediscover a font
-by family name or substitute another program.
+by family name or substitute another program. The current `BindFont` requires
+`ResourceFace`; caller-injected associations for other faces are future work.
 
 Keep provenance/resource identity, font-program identity and sized-instance
 identity distinct. Several sizes can share one program while retaining their
@@ -85,27 +88,57 @@ Coordinate conversion and font-size selection occur once at the PDF boundary.
 Positions, font size and scale must refer to the same retained instance. Validate
 any narrowing of GID or coordinate representations rather than truncating.
 
-## Verify the backend locally before implementation
+## Pinned backend audit and local adaptation
 
-Against a pinned Folio version, determine:
+The Go module proxy resolves `github.com/carlos7ags/folio@v0.11.0` to tag commit
+`e3f1bc3851c79072d76f904b32e3fdd30117ceb4`; its module requires Go 1.26.0.
+The adapter uses this pinned release without modifying Folio or sibling modules.
 
-- How to register/use the exact selected GIDs for embedding and subsetting.
-- How to associate a font resource with a page without invoking text layout.
-- How to emit explicit glyph positions and initialize/access output streams.
-- Which data the private font model requires and whether supported static
-  fixtures provide it.
-- Whether glyph-only use requires a local wrapper or small backend extension.
-- How resource/document finalization and failures affect retries or output files.
+| Verified API/behavior | Local use in docrender |
+| --- | --- |
+| `font.ParseTTF` retains a private parsed model over supplied bytes. | Parse a copy read from the upstream immutable resource. Validate identity and the instance's bound scale against the parsed UPEM; never rebind the upstream face. |
+| `EmbeddedFont.EncodeGIDs(gids, "")` registers exact 16-bit GIDs and returns big-endian codes. | Validate the GID against the actual glyph count before narrowing. No original-text input is introduced. |
+| Empty text creates U+0000 placeholder `/ToUnicode` entries. | Remove the Type0 dictionary's `/ToUnicode` reference. Folio's generated CMap object remains unreferenced; it is not offered as semantic output. |
+| `EmbeddedFont.BuildObjects` builds resources through an object-registration callback. Its subsetter preserves GIDs, but glyph-only use creates duplicate U+0000 cmap segments inside the subset and nondeterministic output. | Replace the generated FontFile2 payload with the exact original retained program and remove the subset prefix from resource names. Full-font embedding is the initial profile; glyph-only subsetting is deferred. One document-owned embedding state per program SHA256 is shared across sizes/pages; provenance identity is validated separately. |
+| Font descriptor ascent, descent, cap height and bounding box are emitted in design units in this release. | Normalize those descriptor fields to PDF's 1000-em units inside the callback. Nominal widths remain backend metadata and never place glyphs. |
+| `document.Page`'s embedded-font registration and stream initialization helpers are private; `ContentStream()` is nil before content exists. | Use public `content.NewStream`, `BuildObjects` and `document.Writer` directly. Construct only the catalog, page tree and resource dictionaries locally. No dummy text, reflection or dependency patch is needed. |
+| `content.Stream.SetTextMatrix` and `ShowTextHex` emit explicit origins and codes. | One absolute, upright text matrix per glyph, converting page-local Y down to PDF Y up once. Folio serializes fractional numbers to six decimal places. |
 
-These are verification tasks, not assertions of current API limitations.
-If a convenience API couples glyph registration to original text, investigate
-its lower-level/backend integration path within `docrender`. Do not introduce
-semantic text retention across the pipeline solely to accommodate that API,
-and do not fabricate Unicode to satisfy it. Backend suitability is a question
-to resolve, not a reason to weaken the chosen shaper's authority.
+Pinned sources: [font embedding](https://github.com/carlos7ags/folio/blob/v0.11.0/font/embed.go),
+[font subsetting](https://github.com/carlos7ags/folio/blob/v0.11.0/font/subset.go),
+[page helpers](https://github.com/carlos7ags/folio/blob/v0.11.0/document/page.go),
+[writer](https://github.com/carlos7ags/folio/blob/v0.11.0/document/writer.go),
+[content stream](https://github.com/carlos7ags/folio/blob/v0.11.0/content/stream.go).
 
-Folio reference for that future audit:
-[repository](https://github.com/carlos7ags/folio).
+## Implemented bottom boundary and ownership
+
+The experimental API consists of zero-ready `pdf.Document`, `BindFont`,
+`AddPage`, `Page.PaintGlyphs`, `Page.FillRect` and `Document.WriteTo`. It consumes
+final geometry and opaque RGB in caller order. `pdf.Glyph` is an immediate
+backend call argument; it is not the proposed shared immutable fragment result.
+
+The adapter owns the private Folio model, used-glyph sets and page streams.
+It releases no borrowed upstream service and needs none after successful font
+binding. A `Font` value is sized and document-specific; a foreign-document or
+zero binding is rejected. Neither arbitrary face-interface equality nor a
+bare GID identifies a font. Separate documents share no mutable embedding state.
+Within a document, all operations are serial; copying a used document is invalid.
+
+Full embedding trades PDF size for a direct correspondence to the retained font
+program. Folio still builds a temporary subset internally before the callback
+replaces its payload. Avoiding that wasted work and supporting valid glyph-only
+subsetting are local adapter/backend follow-ups, not upstream text requirements.
+
+Each paint call validates completely before changing page streams or font usage.
+There is no whole-document transaction or rollback. Serialization builds a fresh
+object graph each time and permits retries and later painting. The caller owns
+the output writer; an I/O error may leave partial bytes and requires a fresh
+destination for retry. The proof command serializes to memory before opening
+its output file. These rules remain separate from fragment construction errors.
+
+The only paint primitives in this step are glyphs and opaque filled rectangles.
+The adapter has no tree traversal, atomic callback, style resolution or general
+graphics-state API. Those boundaries remain open.
 
 ## Semantic text and richer output are deferred
 
@@ -122,7 +155,19 @@ Images, rich compositing, advanced font formats and broad PDF conformance
 profiles do not drive this first contract. Unsupported cases should be handled
 under an explicit accepted profile; the initial test document can stay simple.
 
-## Evidence expected from the spike
+## Evidence and remaining integration work
+
+[`pdf` tests](../pdf/document_test.go) inspect final page streams for exact
+origins, GIDs, sizes and colors; verify resource sharing, byte-for-byte original
+font embedding and composite outlines; and exercise invalid batches and write retries.
+[Font tests](../pdf/font_test.go) check capability/identity/scale failures,
+distinct provenance with shared bytes, and separate document embedding state.
+
+[`folio-proof`](../cmd/folio-proof/main.go) produces a two-page backend proof
+from the existing OpenType shaper and visual-order helper, without outline
+extraction. Both pages were rendered with Poppler and inspected; `qpdf --check`
+reported no syntax or stream-encoding errors. This demonstrates the bottom
+boundary with fixed rows, not the full page-layout rendering spike.
 
 Verify that two selected pages contain the expected glyphs, positions and
 foreground/box paint; that selected atomic interiors are composed once; that
@@ -137,4 +182,5 @@ not part of this acceptance check.
 See the [pipeline handoff](docrender_rendering_pipeline_folio_handoff.md),
 [API proposal](immutable_fragment_result_api_proposal.md) and
 [page boundary inventory](pagelayout_painter_boundary_inventory.md) for the
-other responsibilities. All remain planning documents.
+other responsibilities. Those upstream boundaries remain planning documents;
+the completed adapter does not decide CSS traversal ownership or a display list.
