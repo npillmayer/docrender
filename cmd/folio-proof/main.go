@@ -1,24 +1,27 @@
-// folio-proof exercises the bottom PDF boundary with fixed demonstration rows.
+// folio-proof connects immutable fragment results to PDF with fixed demo rows.
 // It is deliberately not a pagination or CSS traversal implementation.
 package main
 
 import (
 	"bytes"
-	"context"
 	"flag"
 	"fmt"
 	"image/color"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/npillmayer/cords/styled"
 	"github.com/npillmayer/docrender/pdf"
+	"github.com/npillmayer/khipu"
 	"github.com/npillmayer/khipu/contracts"
 	"github.com/npillmayer/khipu/dimen"
+	"github.com/npillmayer/khipu/helpers"
 	glyphot "github.com/npillmayer/typography/glyphing/adapter/opentype"
+	"github.com/npillmayer/typography/glyphing/paragraph"
+	"github.com/npillmayer/typography/render"
 	renderot "github.com/npillmayer/typography/render/adapter/opentype"
+	"github.com/npillmayer/uax/bidi"
 	"golang.org/x/text/language"
-	"golang.org/x/text/unicode/bidi"
 )
 
 func main() {
@@ -34,10 +37,10 @@ func main() {
 }
 
 type proofRow struct {
-	text           string
-	size           int
-	x, y, tracking float64
-	paint          color.NRGBA
+	text  string
+	size  int
+	x, y  float64
+	paint color.NRGBA
 }
 
 func run(path, latinPath, hebrewPath string) error {
@@ -65,36 +68,36 @@ func run(path, latinPath, hebrewPath string) error {
 		// Fixed proof rows live only in this command; they are not a proposed
 		// rendering payload, display list, or general text-to-PDF API.
 		rows := []proofRow{
-			{fmt.Sprintf("Folio adapter / %02d", index+1), 26, 48, 92, 0, ink},
-			{"Positioned glyphs from the OpenType shaper", 12, 48, 117, 0, muted},
-			{"Backend proof: fixed rows, no CSS traversal or pagination.", 10, 48, 625, 0, muted},
+			{fmt.Sprintf("Fragment result / %02d", index+1), 26, 48, 92, ink},
+			{"Retained typography through the Folio adapter", 12, 48, 117, muted},
+			{"Fragment proof: fixed rows, no CSS traversal or pagination.", 10, 48, 625, muted},
 		}
 		if index == 0 {
 			rows = append(rows,
-				proofRow{"Office affinity: ffi, fi, fl.", 24, 48, 184, 0, ink},
-				proofRow{"AVATAR and To: shaped spacing.", 20, 48, 228, 0, ink},
-				proofRow{"One font program, several sizes, two pages.", 12, 48, 263, 0, muted},
-				proofRow{"Deliberately expanded glyph origins", 12, 48, 336, 0, muted},
-				proofRow{"AVATAR", 30, 48, 382, 6, blue},
-				proofRow{"Opaque foreground and rectangle paint", 16, 64, 493, 0, white},
+				proofRow{"Office affinity: ffi, fi, fl.", 24, 48, 184, ink},
+				proofRow{"AVATAR and To: shaped spacing.", 20, 48, 228, ink},
+				proofRow{"One font program, several sizes, two pages.", 12, 48, 263, muted},
+				proofRow{"Captured glyph origins and solid color", 12, 48, 336, muted},
+				proofRow{"AVATAR", 30, 48, 382, blue},
+				proofRow{"Opaque foreground and rectangle paint", 16, 64, 493, white},
 			)
 			if err = p.FillRect(48, 460, 404, 56, blue); err != nil {
 				return err
 			}
 		} else {
 			rows = append(rows,
-				proofRow{"Hebrew marks and right-to-left glyph order", 12, 48, 164, 0, muted},
-				proofRow{"One glyph, one absolute origin", 22, 48, 338, 0, ink},
-				proofRow{"The caller supplies paint order and settled geometry.", 13, 48, 376, 0, ink},
-				proofRow{"Nominal font widths do not place the next glyph.", 13, 48, 404, 0, ink},
-				proofRow{"Semantic text remains deferred.", 12, 48, 468, 0, muted},
+				proofRow{"Hebrew marks and right-to-left glyph order", 12, 48, 164, muted},
+				proofRow{"One glyph, one absolute origin", 22, 48, 338, ink},
+				proofRow{"The caller supplies paint order and settled geometry.", 13, 48, 376, ink},
+				proofRow{"Nominal font widths do not place the next glyph.", 13, 48, 404, ink},
+				proofRow{"Semantic text remains deferred.", 12, 48, 468, muted},
 			)
-			if err = line(&d, p, hebrew, "שָׁלוֹם עוֹלָם", 32, 48, 232, 0, blue, bidi.RightToLeft); err != nil {
+			if err = line(p, hebrew, "שָׁלוֹם עוֹלָם", 32, 48, 232, blue, bidi.RightToLeft); err != nil {
 				return err
 			}
 		}
 		for _, row := range rows {
-			if err = line(&d, p, latin, row.text, row.size, row.x, row.y, row.tracking, row.paint, bidi.LeftToRight); err != nil {
+			if err = line(p, latin, row.text, row.size, row.x, row.y, row.paint, bidi.LeftToRight); err != nil {
 				return err
 			}
 		}
@@ -111,56 +114,38 @@ func run(path, latinPath, hebrewPath string) error {
 	return os.WriteFile(path, data.Bytes(), 0644)
 }
 
-func line(d *pdf.Document, p *pdf.Page, face *glyphot.Face, text string, size int, x, y, tracking float64, paint color.NRGBA, direction bidi.Direction) error {
-	instance, err := contracts.NewFontInstance(face, dimen.DU(size)*dimen.BP)
-	if err != nil {
-		return err
-	}
-	bound, err := d.BindFont(instance)
-	if err != nil {
-		return err
-	}
+func line(p *pdf.Page, face *glyphot.Face, text string, size int, x, y float64, paint color.NRGBA, direction bidi.Direction) error {
 	script, lang := language.MustParseScript("Latn"), language.English
 	if direction == bidi.RightToLeft {
 		script, lang = language.MustParseScript("Hebr"), language.Hebrew
 	}
-	stream, err := glyphot.NewStream(16)
+	prepared, err := paragraph.Prepare(paragraph.Input{Text: styled.TextFromString(text), Direction: direction}, khipu.PrepareOptions{}, khipu.Config{
+		Streaming: &khipu.StreamingConfig{Resolver: helpers.DefaultStyleResolver{},
+			Defaults: contracts.ResolvedRunStyle{Font: face, EmSize: dimen.DU(size) * dimen.BP, Script: script, Language: lang,
+				Features: []contracts.ShapeFeature{{Tag: [4]byte{'l', 'i', 'g', 'a'}, Enabled: true}}},
+			NewShaper: func() (contracts.StreamingShaper, error) { return glyphot.NewStream(16) },
+		},
+	})
 	if err != nil {
 		return err
 	}
-	done := make(chan error, 1)
-	go func() {
-		err := stream.Shape(context.Background(), contracts.ShapeParams{
-			Font: instance, Direction: direction, Script: script, Language: lang,
-			Features: []contracts.ShapeFeature{{Tag: [4]byte{'l', 'i', 'g', 'a'}, Enabled: true}},
-		}, strings.NewReader(text), contracts.ShapeBufferOptions{})
-		if finishErr := stream.Finish(); err == nil {
-			err = finishErr
-		}
-		done <- err
-	}()
-	var logical []contracts.ShapedGlyph
-	for g := range stream.Glyphs() {
-		logical = append(logical, g)
-	}
-	if err = <-done; err != nil {
-		return err
-	}
-	if err = stream.Err(); err != nil {
-		return err
-	}
-	// Reuse existing direction handling without calling Outline. This temporary
-	// proof-only loop is not the pending per-fragment traversal implementation.
-	visual, err := renderot.New().VisualOrder(logical, direction)
+	laidOut, err := prepared.Layout(paragraph.LayoutRequest{
+		Params: paragraph.Params{Constraints: paragraph.Constraints{Width: 404 * dimen.BP}, Breaker: paragraph.FirstFit,
+			Assembly: paragraph.Options{Policy: paragraph.CSSLineHeight}, LineLayout: &paragraph.LineLayout{Default: paragraph.LineHeight{Kind: paragraph.NormalHeight}}},
+		Horizontal: &paragraph.HorizontalLayout{},
+	})
 	if err != nil {
 		return err
 	}
-	scale := instance.Scale().ToDU(1) / float64(dimen.BP)
-	glyphs := make([]pdf.Glyph, 0, len(visual))
-	for _, g := range visual {
-		glyphs = append(glyphs, pdf.Glyph{Font: bound, ID: g.GlyphID, X: x + float64(g.XOffset)*scale, Y: y - float64(g.YOffset)*scale, Color: paint})
-		x += float64(g.XAdvance)*scale + tracking
-		y -= float64(g.YAdvance) * scale
+	fragment, err := paragraph.Fragment(laidOut.VList)
+	if err != nil {
+		return err
 	}
-	return p.PaintGlyphs(glyphs)
+	result, err := render.BuildFragmentResult(fragment, render.TextPaint{Default: paint}, renderot.New())
+	if err != nil {
+		return err
+	}
+	// This command places fixed rows by baseline. The adapter accepts only the
+	// resulting explicit translation and adds no layout offsets of its own.
+	return p.PaintFragmentGlyphs(result, render.IndexRange{End: result.GlyphCount()}, x, y-result.Box().Baseline)
 }

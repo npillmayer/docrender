@@ -1,6 +1,7 @@
 # Reusing retained glyph traversal without outlines
 
-**Status:** Planning sketch for the two-page PDF spike, 28 November 2026.
+**Status:** Glyph boundary implemented; page bridge planning remains open,
+28 November 2026.
 [REMARKS.md](REMARKS.md) governs scope. The working public boundary is a complete
 immutable result per selected typography paragraph fragment. Semantic text is
 deferred; CSS paint traversal ownership and display-list structure are open.
@@ -10,19 +11,19 @@ select retained lines, walk physical knots, order detached text pieces, accumula
 retained advances, resolve foreground paint and publish local glyph positions.
 Outline extraction and PDF resources remain consumer work.
 
-The [API proposal](immutable_fragment_result_api_proposal.md),
+The [implemented API](immutable_fragment_result_api_proposal.md),
 [ownership sketch](immutable_fragment_result_sketch.md) and
 [walkthrough](immutable_fragment_result_walkthrough.md) develop this boundary.
 
-## Current coupling and proposed separation
+## Shared traversal and consumer boundaries
 
 | Current code | Responsibility to reuse | Consumer-specific work to separate |
 | --- | --- | --- |
 | `BuildParagraphProof` / `BuildFragmentProof` | Select completed paragraph or fragment placements with correct original indexes. | Proof record format and outline-bound accumulation. |
-| `appendLine` | Start from retained baseline/left skip; traverse physical knots and advance through every final knot width. | General box painting is not performed here. |
-| `appendText` | Use retained font scale, apply visual order once, resolve glyph paint from supported source mappings, accumulate shaped advances/offsets. | Font identity lookup and outline acquisition. |
+| Private `walkRetained` | Start from retained baseline/left skip; traverse physical knots and advance through every final knot width. | General box painting is not performed here. |
+| Private `walkGlyphs` and shared `PaintSources` | Use retained font scale, resolve glyph paint from supported source mappings, accumulate shaped advances/offsets after ordering once. | Font identity lookup and outline acquisition. |
 | `appendGlyph` | Validate/store final origin and resolved foreground. | Path storage and outline-derived bounds. |
-| `Backend` / `Services` | Expose a narrow ordering capability without requiring outlines. | Outline parser/cache and resource identity capabilities. |
+| `GlyphOrderer` / OpenType `VisualPermutation` | Supply physical glyph ordinals without requiring outlines or identity. | Existing proof `Backend` and identity services retain their separate capabilities. |
 
 Sources: [paragraph traversal](../../typography/render/paragraph.go),
 [fragment entry point](../../typography/render/fragment.go),
@@ -35,7 +36,7 @@ Sources: [paragraph traversal](../../typography/render/paragraph.go),
 | --- | --- |
 | Glyph selection, shaping advances/offsets | User-chosen shaper through the existing typography/khipu contracts. |
 | Breaking, final spacing, baselines and local atomic placement | Existing layout stages; rendering does not repeat them. |
-| Reusable selected glyph traversal and temporary paint-source mapping | Proposed in `typography/render`, sharing current algorithms. |
+| Reusable selected glyph traversal and temporary paint-source mapping | Implemented in `typography/render`, shared with outline proofs. |
 | Source paint projection | Caller/integration supplies resolved foreground spans, separately from shaping styles. |
 | Page/paragraph occurrence binding and atomic child geometry | Page bridge; compose selected geometry once. |
 | CSS paint traversal | Separate algorithm; module ownership remains open. |
@@ -150,15 +151,17 @@ Useful existing evidence:
 [tytui fragment proofs](../../tytui/documentlayout/proof_fragment_test.go),
 [directional ordering](../../tytui/pipeline/visual_order_test.go).
 
-Planning should now establish:
+Remaining integration work:
 
 1. A simple two-page print input and its accepted foreground/box paint.
-2. Detached glyph/color/anchor output using shared typography traversal.
+2. Consume the implemented detached glyph/color/anchor result at the page bridge.
 3. Page occurrence joins and an explicit atomic transform contract.
 4. An encapsulated supported paint-order algorithm, with module ownership open.
-5. A `docrender` font/resource experiment using identical font bytes and
-   authoritative glyph placement.
+5. Extend the implemented `pdf.Page.PaintFragmentGlyphs` connection to
+   selected page occurrences, using identical font bytes and authoritative
+   glyph placement. Local range submission is already tested.
 
 Semantic extraction and complex CSS effects are not prerequisites for these
 checks. Concrete display-list operations, representation and replay protocol
-remain undecided. No implementation is authorized by this sketch.
+remain undecided. The current implementation covers the typography boundary;
+it does not implement page paint traversal or atomic child composition.

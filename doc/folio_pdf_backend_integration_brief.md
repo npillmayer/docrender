@@ -2,8 +2,9 @@
 
 **Status:** Boundary brief and first implementation audit, 28 November 2026,
 under [REMARKS.md](REMARKS.md). The bottom adapter is implemented in
-[`docrender/pdf`](../pdf) against **Folio v0.11.0**. The fragment/page bridge and
-CSS paint traversal remain planning work. No display-list design is selected.
+[`docrender/pdf`](../pdf) against **Folio v0.11.0**. Fragment glyph submission is
+connected; selected page composition and CSS paint traversal remain planning
+work. No display-list design is selected.
 
 ## Integration direction
 
@@ -113,9 +114,23 @@ Pinned sources: [font embedding](https://github.com/carlos7ags/folio/blob/v0.11.
 ## Implemented bottom boundary and ownership
 
 The experimental API consists of zero-ready `pdf.Document`, `BindFont`,
-`AddPage`, `Page.PaintGlyphs`, `Page.FillRect` and `Document.WriteTo`. It consumes
+`AddPage`, `Page.PaintGlyphs`, `Page.PaintFragmentGlyphs`, `Page.FillRect` and
+`Document.WriteTo`. It consumes
 final geometry and opaque RGB in caller order. `pdf.Glyph` is an immediate
-backend call argument; it is not the proposed shared immutable fragment result.
+backend call argument, separate from typography's shared immutable fragment result.
+
+`PaintFragmentGlyphs(result, glyphRange, x, y)` consumes a half-open range of the
+result's glyph table and adds the caller's explicit translation once. It uses
+captured colors, GIDs, origins, sized instances and `UnitsToBP`; no source text,
+ordering, metrics, scale-service query or outline extraction occurs. It binds
+only visible selected fonts and retains neither the result nor upstream services.
+Fully transparent glyphs are skipped, partial alpha is rejected, and the direct
+glyph/rectangle primitives continue to require opaque paint.
+
+Ranges let the caller submit text around `AtomicAnchor.BeforeGlyph` boundaries.
+The adapter does not inspect/draw anchors, child boxes or line allocation. It
+infers no baseline/frame offset and defines no atomic recursion, page selection,
+CSS paint ordering or display-list structure.
 
 The adapter owns the private Folio model, used-glyph sets and page streams.
 It releases no borrowed upstream service and needs none after successful font
@@ -130,6 +145,8 @@ replaces its payload. Avoiding that wasted work and supporting valid glyph-only
 subsetting are local adapter/backend follow-ups, not upstream text requirements.
 
 Each paint call validates completely before changing page streams or font usage.
+Fragment submissions stage new font programs too: a late binding, paint or GID
+failure consumes no resource names and leaves document bindings unchanged.
 There is no whole-document transaction or rollback. Serialization builds a fresh
 object graph each time and permits retries and later painting. The caller owns
 the output writer; an I/O error may leave partial bytes and requires a fresh
@@ -162,9 +179,12 @@ origins, GIDs, sizes and colors; verify resource sharing, byte-for-byte original
 font embedding and composite outlines; and exercise invalid batches and write retries.
 [Font tests](../pdf/font_test.go) check capability/identity/scale failures,
 distinct provenance with shared bytes, and separate document embedding state.
+[Fragment tests](../pdf/fragment_test.go) exercise range translation/reuse, real
+RTL/ligatures/SHY suffixes, explicit atomic interleaving, transparent no-ops,
+late failure/retry, captured-scale use and collection of upstream services.
 
-[`folio-proof`](../cmd/folio-proof/main.go) produces a two-page backend proof
-from the existing OpenType shaper and visual-order helper, without outline
+[`folio-proof`](../cmd/folio-proof/main.go) produces a two-page proof through
+paragraph preparation/layout, `BuildFragmentResult` and `PaintFragmentGlyphs`, without outline
 extraction. Both pages were rendered with Poppler and inspected; `qpdf --check`
 reported no syntax or stream-encoding errors. This demonstrates the bottom
 boundary with fixed rows, not the full page-layout rendering spike.
@@ -180,7 +200,7 @@ distinct from completed glyph-result construction. Source text extraction is
 not part of this acceptance check.
 
 See the [pipeline handoff](docrender_rendering_pipeline_folio_handoff.md),
-[API proposal](immutable_fragment_result_api_proposal.md) and
+[fragment API](immutable_fragment_result_api_proposal.md) and
 [page boundary inventory](pagelayout_painter_boundary_inventory.md) for the
-other responsibilities. Those upstream boundaries remain planning documents;
-the completed adapter does not decide CSS traversal ownership or a display list.
+other responsibilities. Selected page composition remains a planning boundary;
+the completed connector does not decide CSS traversal ownership or a display list.

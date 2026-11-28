@@ -3,8 +3,9 @@
 **Status:** Working direction for the two-page PDF spike, 28 November 2026.
 [REMARKS.md](REMARKS.md) sets the priorities: module responsibilities, useful
 positioned-glyph output and simple print paint. Semantic text is deferred.
-The [Go API proposal](immutable_fragment_result_api_proposal.md) is illustrative;
-there is no implementation or display-list decision.
+The [Go API](immutable_fragment_result_api_proposal.md) is implemented in
+`typography/render`. This sketch records its ownership contract; page composition
+and display-list decisions remain open.
 
 ## Purpose and scope
 

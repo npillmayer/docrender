@@ -11,6 +11,7 @@ import (
 	"github.com/carlos7ags/folio/core"
 	foliofont "github.com/carlos7ags/folio/font"
 	"github.com/npillmayer/khipu/contracts"
+	"github.com/npillmayer/khipu/dimen"
 	fontmeta "github.com/npillmayer/typography/font"
 )
 
@@ -87,12 +88,38 @@ func (d *Document) BindFont(instance contracts.FontInstance) (Font, error) {
 	if d == nil || !instance.Valid() {
 		return Font{}, fmt.Errorf("%w: document or font instance", ErrInvalidInput)
 	}
+	bindings := d.stageFonts()
+	font, err := bindings.bind(instance, instance.Scale().ToDU(1)/float64(dimen.BP))
+	if err != nil {
+		return Font{}, err
+	}
+	d.fonts = bindings.programs
+	return font, nil
+}
+
+// fontBindings stages new programs without publishing them to the document.
+// Existing programs are only inspected until the entire drawing call succeeds.
+type fontBindings struct {
+	owner    *Document
+	programs []*fontProgram
+}
+
+func (d *Document) stageFonts() fontBindings {
+	// Limit capacity so the first append cannot change the document's backing
+	// storage. Existing program pointers remain shared within this document.
+	return fontBindings{owner: d, programs: d.fonts[:len(d.fonts):len(d.fonts)]}
+}
+
+func (b *fontBindings) bind(instance contracts.FontInstance, unitsToBP float64) (Font, error) {
+	if !instance.Valid() || !finite(unitsToBP) || unitsToBP <= 0 {
+		return Font{}, fmt.Errorf("%w: retained font instance or scale", ErrInvalidInput)
+	}
 	info, err := fontmeta.Identify(instance.Face())
 	if err != nil {
 		return Font{}, fmt.Errorf("%w: font identity: %w", ErrInvalidInput, err)
 	}
 	var program *fontProgram
-	for _, candidate := range d.fonts {
+	for _, candidate := range b.programs {
 		if candidate.sha256 == info.SHA256 {
 			program = candidate
 			break
@@ -118,21 +145,21 @@ func (d *Document) BindFont(instance contracts.FontInstance) (Font, error) {
 		}
 		program = &fontProgram{
 			sha256:   info.SHA256,
-			name:     fmt.Sprintf("F%d", len(d.fonts)+1),
+			name:     fmt.Sprintf("F%d", len(b.programs)+1),
 			embedded: foliofont.NewEmbeddedFont(face),
 		}
 	}
 	// The retained conversion must agree with the exact program's UPEM and
 	// physical em size. This guards against a mismatched resource association.
-	em := float64(instance.EmSize())
-	scaledEm := instance.Scale().ToDU(1) * float64(program.embedded.Face().UnitsPerEm())
+	em := instance.EmSize().Points()
+	scaledEm := unitsToBP * float64(program.embedded.Face().UnitsPerEm())
 	if !finite(scaledEm) || math.Abs(scaledEm-em) > em*1e-9 {
 		return Font{}, fmt.Errorf("%w: retained scale disagrees with font program", ErrInvalidInput)
 	}
 	if newProgram {
-		d.fonts = append(d.fonts, program)
+		b.programs = append(b.programs, program)
 	}
-	return Font{owner: d, program: program, size: instance.EmSize().Points()}, nil
+	return Font{owner: b.owner, program: program, size: em}, nil
 }
 
 // Limit this spike to one static SFNT face with monochrome TrueType outlines.

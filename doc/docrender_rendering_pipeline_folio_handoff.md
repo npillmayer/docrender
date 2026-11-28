@@ -3,7 +3,9 @@
 **Status:** Planning handoff, revised 28 November 2026 under
 [REMARKS.md](REMARKS.md). The target is a straightforward two-page PDF with
 simple paint. The bottom Folio adapter is now implemented in
-[`docrender/pdf`](../pdf); the upper boundaries remain proposals. A finalized
+[`docrender/pdf`](../pdf), along with the slim fragment result in
+[`typography/render`](../../typography/render/result.go). `Page.PaintFragmentGlyphs`
+now connects them with explicit glyph ranges and translations. Page composition,
 pipeline package layout and display-list design are still open.
 
 ## Objective
@@ -164,12 +166,16 @@ from GIDs. Later semantic output needs an explicit, separately scoped contract.
 ## Planning sequence and evidence
 
 Implementation proceeds bottom up: step 5 below has a working adapter and fixed
-two-page proof. The other steps still require their own design and integration;
-the proof command's row placement is not a shared traversal implementation.
+two-page proof, and step 2 has a tested typography result sharing traversal with
+outline proofs. The proof submits those results directly to the PDF adapter.
+Connecting these to selected page occurrences remains separate;
+the proof command's row placement is not a page paint algorithm.
 
 1. Choose a simple two-page fixture and document its supported print paint.
-2. Finalize the small shared glyph-result boundary and construction-time color
-   resolution, preserving borrowed-font lifetime.
+2. **Fragment result implemented:** capture local glyph/anchor geometry and solid
+   color, preserving borrowed-font lifetime and releasing construction inputs.
+   **PDF connector implemented:** submit explicit glyph ranges/translations,
+   stage resource bindings, and release result/font services after submission.
 3. Establish selected page/atomic bindings and their coordinate authority.
 4. Describe and test the supported paint-order algorithm; choose its module only
    after its dependencies are understood.

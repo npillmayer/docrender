@@ -1,8 +1,9 @@
 # Painter boundary inventory for pagelayout
 
 **Status:** Planning inventory for the two-page PDF spike, 28 November 2026.
-[REMARKS.md](REMARKS.md) governs scope. API sketches remain proposals;
-paint traversal ownership and display-list representation are open.
+[REMARKS.md](REMARKS.md) governs scope. The typography fragment result and bottom
+PDF adapter are implemented; page integration, paint traversal ownership and
+display-list representation remain open.
 
 `pagelayout` publishes enough frozen geometry, shaped text and source paint to
 start a rendering integration for a deliberately bounded profile. Its output is
@@ -175,16 +176,16 @@ Sources: [frozen lines and text](../../khipu/frozen_result.go),
 [source coverage mapping](../../pagelayout/preparation/typography/fit_sources.go).
 
 Current `pagelayout` output retains enough information to derive final glyph
-origins. Shared typography rendering traversal is the proposed owner of that
+origins. Shared typography rendering traversal now owns that
 derivation; the backend then consumes settled positions. Neither Folio nominal
 widths nor a new layout pass may replace the shaper/layout decisions.
 
 The [glyph traversal boundary sketch](glyph_traversal_boundary_sketch.md) develops
 reuse inside typography/render, keeping source mapping temporary while resolving
 local placement and foreground. Outlines, backend identity and page composition
-remain separate. Public signatures are proposals and display-list design is open.
+remain separate. The slim public result is implemented; display-list design is open.
 
-The working traversal output is now an immutable result per selected typography
+The traversal output is now an immutable result per selected typography
 paragraph fragment; the [result ownership sketch](immutable_fragment_result_sketch.md)
 details fonts, positions, resolved colors and atomic anchors. A structural
 pagelayout fragment can contain several of these paragraph results.
@@ -293,6 +294,7 @@ as export APIs:
 | [Delivery tests](../../pagelayout/shipout_test.go) | Selected-only delivery, failure progress, cancellation and empty/decorated material. |
 | [Retained fragment tests](../../typography/layout/fragment_test.go) | Local geometry, original frozen line identities and immutable fragment ownership. |
 | [Glyph paint mapping tests](../../typography/render/paint_sources_test.go) | Existing processed-source mapping and explicit generated-text limitations. |
+| [Immutable fragment-result tests](../../typography/integration/fragment_result_test.go) | Outline-free RTL/ligature/SHY placement, selected anchors, failure/retry and collection of construction inputs. |
 | [Tytui fragment proofs](../../tytui/documentlayout/proof_fragment_test.go) | LTR/RTL ligatures and paint/source conservation after translation; nested atomics, negative advances, precise origins, different frozen owners, empty ranges and failure publication. |
 | [Tycli frame tests](../../tytui/tycli/frames_test.go) | Equal/changed-width demo flows, glyph/box controls and preservation of existing output on incomplete or invalid flow. |
 
@@ -300,9 +302,9 @@ The next planning steps should resolve the following in order:
 
 1. **Choose the two-page print fixture.** Declare its simple accepted paint.
    Ordinary inline backgrounds and complex effects need not enter this fixture.
-2. **Define the small glyph result.** Reuse typography traversal; retain final
-   positions, fonts, resolved colors and anchors. Keep paint-source mapping
-   transient and semantic text deferred.
+2. **Small glyph result implemented.** Shared typography traversal retains final
+   positions, fonts, resolved colors and anchors. Paint-source mapping stays
+   transient and semantic text deferred; page consumers still need integration.
 3. **Resolve occurrence and atomic bindings.** Specify the selected child joins,
    precision and one authoritative transform path.
 4. **Encapsulate supported paint traversal.** Trace an interleaved page, including
@@ -311,7 +313,8 @@ The next planning steps should resolve the following in order:
 5. **Backend font pairing implemented first.** Docrender connects the same
    immutable font program to its upstream and Folio representations. Glyph-only
    registration, resource lifetime and exact placement are tested against
-   v0.11.0; page/fragment integration remains pending.
+   v0.11.0. `Page.PaintFragmentGlyphs` now consumes retained glyph ranges with
+   explicit translation; selected page composition remains pending.
 
 After those contracts are understood, a small rendering experiment can test
 coordinates, occurrence conservation, paint order, resolved colors and resource

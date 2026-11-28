@@ -53,3 +53,16 @@ typesetters glyphing phase.
 This is an algorithmic requirement, that we should ideally keep clearly
 encapsulated. I am unsure right now in which module it should live.
 Traversal needs special architectural care.
+
+As it is connected to CSS, it should not reside in `docrender`, and we should
+not make it (completely) optional. As far as I know, paint rendering order
+depends on contexts governed by HTML elements. Do we have this information
+retained through the layout-tree -> render tree -> template-filling 
+pipeline? Or are we able to somehow compact the relevant information and
+route it through? The initial knowledge is located in modules `w3c-dom`
+and `css-page-layout`. However, it seems more appropriate to have the
+paint order be managed by the page layouter.
+
+I see no need to encapsulate the paint order via interface, as our whole
+pipeline is in essence tied to HTML/CSS semantics, even if we decide to
+deviate from the standard sometimes.

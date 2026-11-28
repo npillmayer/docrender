@@ -1,10 +1,11 @@
-# Minimal immutable fragment API proposal
+# Minimal immutable fragment API
 
-**Status:** Planning proposal for the two-page PDF spike, 28 November 2026.
-[REMARKS.md](REMARKS.md) governs scope. These Go declarations are illustrative;
-no implementation or display-list representation is selected.
+**Status:** Implemented typography boundary for the two-page PDF spike,
+28 November 2026. [REMARKS.md](REMARKS.md) governs scope. The declarations below
+describe [`typography/render`](../../typography/render/result.go); page bridge
+and display-list decisions remain open.
 
-The proposed home remains `typography/render`. One result describes one selected
+The implementation lives in `typography/render`. One result describes one selected
 `layout.Fragment`, with positioned glyphs, resolved solid foreground colors,
 font references, logical line geometry and atomic anchors. It retains no
 paragraph text, replacement strings or semantic cluster model.
@@ -17,12 +18,12 @@ module ownership remains open.
 ## Construction and paint input
 
 ```go
-// Proposed declarations in package render; bodies are omitted.
+// Public declarations in package render; bodies are omitted.
 // Imports: image/color, khipu/contracts, typography/layout,
 //          golang.org/x/text/unicode/bidi.
 
 type FragmentResult struct {
-    // Private immutable storage. Use the constructor; zero is not valid.
+    // Private immutable storage. Use the constructor; zero inspects as empty.
 }
 
 type SolidPaintSpan struct {
@@ -56,6 +57,8 @@ synchronous call. It validates and publishes a complete result or returns
 Invalid input wraps `contracts.ErrIllegalArguments`. An empty selected range
 returns a valid empty result with no baseline, even if its frozen owner has
 other lines.
+The orderer must be nonnil, including for empty selections. Nil/zero results can
+be inspected as empty, but are not constructed results.
 
 Paint spans address the full processed paragraph associated with the fragment,
 including for a suffix selection. They are ordered, nonoverlapping, nonempty
@@ -78,8 +81,10 @@ The ordering service borrows its detached input without modifying or retaining
 it. Its permutation must contain every logical input index exactly once.
 Construction carries font and paint associations through that permutation and
 discards it afterward. The completed result retains neither the service nor
-logical glyph ordinals. This narrow interface is a proposal; the existing
-render backend currently returns reordered glyph values.
+logical glyph ordinals. Construction rejects mutation of the borrowed glyphs.
+The OpenType render adapter implements this interface without parsing fonts.
+Existing outline proofs retain their diagnostic output and reordered-value
+backend interface, sharing the private knot walker and glyph positioning helper.
 
 ## Read-only surface
 
@@ -162,6 +167,8 @@ while frozen records are available. Map raw scalar anchors to processed-byte
 paint positions, select the corresponding resolved color, and keep only that
 color in the result. Scratch mappings and source strings are released before
 publication. There is no retained `PaintSourceMap` or source accessor.
+Source is read temporarily through the selected fragment's frozen owner when
+spans are present; callers do not pass a separate copy of paragraph text.
 
 With no spans, every glyph uses `Default`; no source mapping is necessary.
 Glyphless material produces no color and needs no mapping solely for semantic
@@ -209,8 +216,8 @@ accessor or complete source-consumption invariant is required.
 The result owns its selected numeric/color records and retains exact existing
 font instances. Font/scale objects remain borrowed services: strong references
 keep them reachable, but the result does not close or rebind them. Capture
-`UnitsToBP` so ordinary numeric inspection needs no font query. Font-table
-deduplication is optional and must not compare arbitrary face interface values.
+`UnitsToBP` so ordinary numeric inspection needs no font query. The implementation
+adds one font entry per nonempty text piece, without comparing opaque face values.
 
 After construction, callers can release the original fragment, source readers,
 paint input and ordering service. The result keeps no frozen arena, preparation,
@@ -250,3 +257,13 @@ text, source ranges, material/cluster tables, logical glyph ordinals, retained
 direction and a persistent paint-source lookup. It keeps the immutable delivery
 and borrowed-font contract, with resolved color as the drawing information that
 replaces retained source-based paint lookup.
+
+Implementation coverage lives in
+[`fragment_result_test.go`](../../typography/integration/fragment_result_test.go)
+and [`result_test.go`](../../typography/render/result_test.go), including real
+ligatures/RTL/soft hyphens, signed positioning, atomic boundaries, failures and
+release of construction inputs. Docrender's
+[`Page.PaintFragmentGlyphs`](../pdf/fragment.go) consumes explicit glyph ranges
+and translations, using captured scale and resolved color. It skips transparent
+glyphs, rejects partial alpha and leaves atomic composition and page paint order
+with the caller. Selected page occurrence integration remains open.

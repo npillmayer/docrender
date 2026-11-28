@@ -1,10 +1,12 @@
 # Walking the spike API through four cases
 
-**Status:** Planning review, 28 November 2026. This follows
+**Status:** Boundary walkthrough, 28 November 2026. This follows
 [REMARKS.md](REMARKS.md) and the
-[slim API proposal](immutable_fragment_result_api_proposal.md).
-It describes illustrative construction and retained output, not executed code
-or a display-list design.
+[slim API](immutable_fragment_result_api_proposal.md).
+The numeric examples remain illustrative. The boundary now has implementation
+coverage in [fragment-result tests](../../typography/integration/fragment_result_test.go),
+including real fonts, source-dependent paint, atomic anchors and ownership.
+It does not select a display-list design.
 
 The result retains final glyph positions, fonts/colors, logical lines and atomic
 anchors. Source strings, replacement spellings, direction, logical ordinals and
@@ -135,14 +137,13 @@ Evidence: [atomic layout](../../typography/glyphing/paragraph/atomic.go),
 
 | Boundary | Remaining work for the spike |
 | --- | --- |
-| Resolved foreground input | Adapt existing caller paint spans to the proposed simple color input; keep source mapping transient and shared. |
+| Resolved foreground input | Adapt page caller paint spans to the implemented simple color input; keep source mapping transient and shared. |
 | Page/atomic geometry | Bind exact selected occurrences and choose one transform/precision policy. |
 | CSS paint traversal | Define the supported ordering algorithm and its required inputs before choosing its module. |
-| PDF fonts | Pair the exact upstream font binary with Folio's private representation inside `docrender`; verify glyph registration and placement against a pinned backend. |
+| PDF fonts | Retained glyph ranges now connect to `docrender/pdf` font pairing and explicit placement. Extend page-level evidence after occurrence composition is defined. |
 | Deferred semantics | No new public cluster/source retention or extraction requirement. Existing upstream source ownership remains intact. |
 
-Future implementation checks should compare exact GIDs, positions, colors,
-selected-anchor conservation and lifetime after construction inputs are released.
-Folio must preserve final origins even where its nominal widths differ from
-shaped advances or layout spacing. No implementation or runtime verification of
-the proposed API is implied here.
+Typography regressions compare GIDs, positions, colors, selected anchors and
+lifetime after construction inputs are released. A future bridge check must
+verify the composed page occurrences. Folio must preserve final origins even
+where its nominal widths differ from shaped advances or layout spacing.
